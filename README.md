@@ -17,13 +17,13 @@ Esta sección describe los modelos utilizados para la predicción, con modelos e
 A lo largo del estudio se evaluaron estas técnicas bajo métricas de error estándar, destacándose el modelo de Random Forest por su capacidad para capturar relaciones no lineales y manejar interacciones complejas entre variables. Este ejercicio no solo permite optimizar las decisiones de compra de la startup, sino que también ofrece una visión detallada sobre cómo influyen las características físicas y contextuales de las viviendas en su valorización dentro del mercado inmobiliario de Bogotá, en particular en una zona estratégica como Chapinero. 
 
 ### 01_Documents 
-En esta carpeta se encuentra el documento necesario para desarrollar el problem set y contiene el documento final en pdf. 
+En esta carpeta se encuentran dos archivos en formato PDF, el primero es el documento final con resultados y conclusiones y el segundo el documento guia para desarrollar el problem set. 
 
 ### 02_Script 
 En esta carpeta se incluye el archivo en R Markdown donde se desarrolla el problem set y el script en R donde se deposita únicamente el código. 
 
 ### 03_Stores 
-En esta carpeta se enceuntra la base de datos ya filtrada utilizada para realizar el problem set. 
+En esta carpeta se enceuntran varios archivos tipo .csv que incluyen las base de datos test y train empleadas para realizar las predicciones y múltiples archivos con las predicciones estimadas. 
 
 ### 04_Views 
-En esta carpeta se evidencian los gráficos obtenidos del código en formato JPG y las tablas con algunos de los resultados 
+En esta carpeta se evidencian los gráficos obtenidos del código en formato JPG y las tablas con algunos de los resultados. 
