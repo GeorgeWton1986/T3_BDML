@@ -115,7 +115,7 @@ graf_ms2 <- ggplot(train_aptos, aes(surface_covered)) +
   theme_bw() +
   theme(plot.title = element_text(size = 18))
 
-ggsave("../04_Views/GRAFICO1-HISTOGRAMA-AREAPRIVADA.png", plot = graf_ms2, dpi = 150, width = 8, height = 6)
+ggsave("../04_Views/GRAFICO2-HISTOGRAMA-AREAPRIVADA.png", plot = graf_ms2, dpi = 150, width = 8, height = 6)
 
 ## Gráfico para rooms (habitaciones)
 graf_ms3 <- ggplot(train_aptos, aes(rooms)) +
@@ -126,7 +126,7 @@ graf_ms3 <- ggplot(train_aptos, aes(rooms)) +
   theme_bw() +
   theme(plot.title = element_text(size = 18))
 
-ggsave("../04_Views/GRAFICO1-HISTOGRAMA-HABITACIONES.png", plot = graf_ms3, dpi = 150, width = 8, height = 6)
+ggsave("../04_Views/GRAFICO3-HISTOGRAMA-HABITACIONES.png", plot = graf_ms3, dpi = 150, width = 8, height = 6)
 
 ## Gráfico para bathrooms (baños)
 graf_ms4 <- ggplot(train_aptos, aes(bathrooms)) +
@@ -137,7 +137,7 @@ graf_ms4 <- ggplot(train_aptos, aes(bathrooms)) +
   theme_bw() +
   theme(plot.title = element_text(size = 18))
 
-ggsave("../04_Views/GRAFICO1-HISTOGRAMA-BAÑOS.png", plot = graf_ms4, dpi = 150, width = 8, height = 6)
+ggsave("../04_Views/GRAFICO4-HISTOGRAMA-BAÑOS.png", plot = graf_ms4, dpi = 150, width = 8, height = 6)
 
 # Imputación de variables con la mediana
 
@@ -384,7 +384,7 @@ write.csv(pred_rneuronales3,
 
 ```
 
-## 2.7 Regresión linear
+## 2.7 Regresión lineal
 
 ```{r}
 
