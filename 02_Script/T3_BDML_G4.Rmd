@@ -25,6 +25,7 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        dplyr,       # Manipulación de datos
        ggplot2,     # Visualización de datos en gráficas
        readr,       # Importación de datos
+       stargazer,   # Formato para tablas
        utils,       # Lctura de archivos y manipulación de datos
        skimr,       # Resumen estadístico 
        caret,       # Creación y validación de modelos predictivos 
@@ -33,7 +34,16 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        rpart,       # Árboles de decisión
        rpart.plot,  # Visualización de árboles generados por rpart
        pROC,        # Curvas ROC y métricas 
-       Metrics      # Métricas de evaluación
+       Metrics,     # Métricas de evaluación
+       httr,        # Solicitudes http
+       rio,         # Facilidad para importar data
+       plotly,      # Gráficos interactivos
+       osmdata,     # Obtener información de open street maps
+       sf,          # Leer/escribir/manipular datos espaciales
+       leaflet,     # Mapas interactivos
+       gridExtra,   # Graficar en grid
+       tmaptools,   # Geocode_OMS()
+       geosphere   # Calcular distancias geográficas como Haversine
        )
 ```
 
@@ -42,7 +52,7 @@ p_load(tidyverse,   # Manipulación y visualización de datos
 ```{r}
 # 1. Carga de datos train 
 ## Definir URL del archivo Excel en GitHub
-url_excel_train <- "https://raw.githubusercontent.com/GeorgeWton1986/T3_BDML/refs/heads/main/02_Script/train.csv"
+url_excel_train <- "https://raw.githubusercontent.com/GeorgeWton1986/T3_BDML/refs/heads/main/03_Stores/train.csv"
 
 ## Descargar el archivo temporalmente
 temp_file <- tempfile(fileext = ".csv")
@@ -54,7 +64,7 @@ train_aptos <- read_csv(temp_file)
 
 # 2. Carga de datos test hogares
 ## Definir URL del archivo Excel en GitHub
-url_excel_test <- "https://raw.githubusercontent.com/GeorgeWton1986/T3_BDML/refs/heads/main/02_Script/test.csv"
+url_excel_test <- "https://raw.githubusercontent.com/GeorgeWton1986/T3_BDML/refs/heads/main/03_Stores/test.csv"
 
 ## Descargar el archivo temporalmente
 temp_file <- tempfile(fileext = ".csv")
@@ -139,7 +149,7 @@ graf_ms4 <- ggplot(train_aptos, aes(bathrooms)) +
 
 ggsave("../04_Views/GRAFICO4-HISTOGRAMA-BAÑOS.png", plot = graf_ms4, dpi = 150, width = 8, height = 6)
 
-# Imputación de variables con la mediana
+# Imputación de variables con la mediana y moda
 
 ## 1. Variable surface_total con mediana
 mediana_surface_total <- median(train_aptos$surface_total, na.rm = TRUE)
@@ -153,20 +163,112 @@ mediana_surface_covered <- median(train_aptos$surface_covered, na.rm = TRUE)
 train_aptos <- train_aptos  %>%
   mutate(surface_covered = ifelse(is.na(surface_covered) == TRUE, mediana_surface_covered, surface_covered))
 
-## 3.  Variable rooms con la mediana
-mediana_rooms <- median(train_aptos$rooms, na.rm = TRUE) # validación que es un número entero
+## 3.  Variable rooms con la moda
+moda_rooms <- train_aptos %>% 
+  filter(!is.na(rooms)) %>% 
+  count(rooms) %>% 
+  arrange(desc(n)) %>% 
+  slice(1) %>% 
+  pull(rooms)
 
 train_aptos <- train_aptos  %>%
-  mutate(rooms = ifelse(is.na(rooms) == TRUE, mediana_rooms, rooms))
+  mutate(rooms = ifelse(is.na(rooms) == TRUE, moda_rooms, rooms))
 
-## 4.Variable bathrooms con mediana
-mediana_bathrooms <- median(train_aptos$bathrooms, na.rm = TRUE) # validación ques es un número entero
+## 4.Variable bathrooms con la moda
+moda_bathrooms <- train_aptos %>% 
+  filter(!is.na(bathrooms)) %>% 
+  count(bathrooms) %>% 
+  arrange(desc(n)) %>% 
+  slice(1) %>% 
+  pull(bathrooms)
 
 train_aptos <- train_aptos  %>%
-  mutate(bathrooms = ifelse(is.na(bathrooms) == TRUE, mediana_bathrooms, bathrooms))
+  mutate(bathrooms = ifelse(is.na(bathrooms) == TRUE, moda_bathrooms, bathrooms))
 
 # Validación de correcta imputación de missing values en variables numéricas
 skim(train_aptos)
+```
+
+Explorar la base para identificar outliers o anomalias de los datos
+
+```{r}
+train_aptos <- as.data.frame(train_aptos)
+stargazer(train_aptos, type = "text")
+
+# Calcular el precio por metro cuadrado
+train_aptos <- train_aptos %>%
+  mutate(precio_mt2 = round(price / surface_total, 0))
+
+skim(train_aptos)
+
+# Histograma del precio por metro cuadrado
+graf_5 <- ggplot(train_aptos, aes(precio_mt2)) +
+  geom_histogram(color = "#000000", fill = "#0099F8") +
+  ggtitle("GRÁFICA 4 - Precio por metro cuadrado (millones)") +
+  scale_x_continuous(labels = function(x) x / 1e6) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 18))
+
+ggsave("../04_Views/GRAFICO5-HISTOGRAMA-PRECIOXMETROCUADRADO.png", plot = graf_5, dpi = 150, width = 8, height = 6)
+
+# Box plot del precio por metro cuadrado
+graf_6 <- train_aptos %>%
+  ggplot(aes(y = precio_mt2)) +
+  geom_boxplot(fill = "darkblue", alpha = 0.4) +
+  labs(
+    title = "Muestra completa",
+    y = "Precio por metro cuadrado (millones)", x = "") +
+  scale_y_continuous(labels = function(x) x / 1e6) +
+  theme_bw()
+
+ggsave("../04_Views/GRAFICO6-BOXPLOT-PRECIOXMETROCUADRADO.png", plot = graf_6, dpi = 150, width = 8, height = 6)
+
+# Ante outliers superiores se aplica la Metodología de percentil 99%
+#p1 <- quantile(train_aptos$precio_mt2, probs = 0.01, na.rm = TRUE)
+p99 <- quantile(train_aptos$precio_mt2, probs = 0.99, na.rm = TRUE)
+
+train_aptos <- train_aptos %>%
+  filter(precio_mt2 <= p99)
+
+# Filtrar solo los valores menores o iguales al límite superior
+graf_7 <- train_aptos %>%
+  ggplot(aes(y = precio_mt2)) +
+  geom_boxplot(fill = "darkblue", alpha = 0.4) +
+  labs(
+    title = "Muestra filtrada - P99",
+    y = "Precio por metro cuadrado (millones)", x = "") +
+  scale_y_continuous(labels = function(x) x / 1e6) +
+  theme_bw()
+
+ggsave("../04_Views/GRAFICO6-BOXPLOT-PRECIOXMETROCUADRADO-P99.png", plot = graf_7, dpi = 150, width = 8, height = 6)
+
+```
+
+Identificar en el mapa la ubicacion de los apartamentos y casas
+
+```{r}
+# Observamos la primera visualización de la ubicación de los inmubles de la base train_aptos
+leaflet() %>%
+  addTiles() %>%
+  addCircles(lng = train_aptos$lon, 
+             lat = train_aptos$lat)
+```
+
+```{r}
+# Ahora solo nos quedaremos con las observaciones que efectivamente están dentro de Chapinero y no están mal georeferenciadas
+limites <- getbb("Chapinero, Bogotá, Colombia")
+limites
+
+train_chapinero <- train_aptos %>%
+  filter(
+    between(lon, limites[1, "min"], limites[1, "max"]) & 
+    between(lat, limites[2, "min"], limites[2, "max"])
+  )
+
+leaflet() %>%
+  addTiles() %>%
+  addCircles(lng = train_chapinero$lon, 
+             lat = train_chapinero$lat)
 ```
 
 ## 1.2 Inspección y tratamiento de BD test
@@ -193,13 +295,13 @@ test_aptos <- test_aptos  %>%
 test_aptos <- test_aptos  %>%
   mutate(surface_covered = ifelse(is.na(surface_covered) == TRUE, mediana_surface_covered, surface_covered))
 
-## 3.  Variable rooms con la mediana de train
+## 3.  Variable rooms con la moda de train
 test_aptos <- test_aptos  %>%
-  mutate(rooms = ifelse(is.na(rooms) == TRUE, mediana_rooms, rooms))
+  mutate(rooms = ifelse(is.na(rooms) == TRUE, moda_rooms, rooms))
 
-## 4.Variable bathrooms con mediana de train
+## 4.Variable bathrooms con moda de train
 test_aptos <- test_aptos  %>%
-  mutate(bathrooms = ifelse(is.na(bathrooms) == TRUE, mediana_bathrooms, bathrooms))
+  mutate(bathrooms = ifelse(is.na(bathrooms) == TRUE, moda_bathrooms, bathrooms))
 
 # Validación de correcta imputación de missing values en test
 skim(test_aptos)
