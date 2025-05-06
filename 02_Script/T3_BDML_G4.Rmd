@@ -6,10 +6,6 @@ date: "2025-05-03"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 # 1. Definición de entorno de trabajo
 
 ```{r}
@@ -88,7 +84,7 @@ train_aptos %>%
 # Resumen de apartamentos de la base train_hogares
 skim(train_aptos)
 
-# Trtamiento de missing values
+# Tratamiento de missing values
 train_miss <- skim(train_aptos) %>%
   filter(skim_type == "numeric") %>%
   select(skim_variable, n_missing)  
@@ -103,7 +99,7 @@ train_aptos_miss<- train_miss %>%
 
 train_aptos_miss
 
-# Visaulizar variables con missing values
+# Visualizar variables con missing values
 
 ## Gráfico para surface_total (área total)
 graf_ms1 <- ggplot(train_aptos, aes(surface_total)) +
@@ -269,6 +265,75 @@ leaflet() %>%
   addTiles() %>%
   addCircles(lng = train_chapinero$lon, 
              lat = train_chapinero$lat)
+```
+
+
+```{r}
+# Definir el límite de Chapinero en Bogotá
+limites_chapinero <- getbb("Chapinero, Bogotá, Colombia")
+
+# Extraer la información de los parques en Chapinero
+parques_chapinero <- opq(bbox = limites_chapinero) %>%
+  add_osm_feature(key = "leisure", value = "park")
+
+# Convertir los datos a formato sf
+parques_sf_chapinero <- osmdata_sf(parques_chapinero)
+
+# Filtrar los parques dentro del límite de Chapinero
+parques_chapinero_geometria <- parques_sf_chapinero$osm_polygons %>%
+  dplyr::select(osm_id, name)
+
+# Verificar los parques en Chapinero
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = parques_chapinero_geometria, color = "red", weight = 2, opacity = 0.8, popup = parques_chapinero_geometria$name)
+
+```
+
+
+
+```{r}
+# Calcular los centroides de los parques en Chapinero
+centroides_chapinero <- st_centroid(parques_chapinero_geometria, byid = TRUE)
+
+# Extraer las coordenadas de los centroides
+centroides_chapinero <- centroides_chapinero %>%
+  mutate(x = st_coordinates(centroides_chapinero)[, "X"]) %>%
+  mutate(y = st_coordinates(centroides_chapinero)[, "Y"])
+
+# Convertir los centroides a un objeto sf
+centroides_chapinero_sf <- st_as_sf(centroides_chapinero, coords = c("x", "y"), crs = 4326)
+
+# Visualizar los centroides
+leaflet() %>%
+  addTiles() %>%
+  addCircles(data = centroides_chapinero_sf, color = "darkblue", radius = 50, opacity = 0.7)
+
+```
+
+```{r}
+# Convertir los apartamentos a un objeto sf 
+sf_aptos <- st_as_sf(train_chapinero, coords = c("lon", "lat"), crs = 4326)
+
+# Calcular la distancia entre los apartamentos y los centroides de los parques
+dist_matrix <- st_distance(sf_aptos, centroides_chapinero_sf)
+
+# Obtener la distancia mínima para cada apartamento
+dist_min <- apply(dist_matrix, 1, min)
+
+# Añadir la distancia mínima a la base de datos de los apartamentos
+train_chapinero <- train_chapinero %>% mutate(distancia_parque = dist_min)
+
+# Crear el histograma de la distancia mínima a los parques
+p <- ggplot(train_chapinero, aes(x = distancia_parque)) +
+  geom_histogram(bins = 50, fill = "darkblue", alpha = 0.4) +
+  labs(x = "Distancia mínima a un parque en metros", y = "Cantidad",
+       title = "Distribución de la distancia a los parques en Chapinero") +
+  theme_bw()
+
+ggsave("../04_Views/GRAFICO8-DISTANCIAPARQUES.png", plot = p, dpi = 150, width = 8, height = 6)
+
+
 ```
 
 ## 1.2 Inspección y tratamiento de BD test
