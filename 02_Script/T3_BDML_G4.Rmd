@@ -269,6 +269,64 @@ leaflet() %>%
              lat = train_chapinero$lat)
 ```
 
+
+Variables en descripción
+
+Tokenizar
+
+```{r}
+library(tidytext)
+library(dplyr)
+
+# Tokenización de la columna 'description'
+train_chapinero_tokens <- train_chapinero %>%
+  unnest_tokens(word, description)  # Esto tokeniza por palabra
+
+# Ahora puedes limpiar (eliminar stopwords, por ejemplo)
+data("stop_words")
+train_chapinero_tokens_clean <- train_chapinero_tokens %>%
+  anti_join(stop_words)
+
+```
+Palabras más comunes
+
+```{r}
+train_chapinero_tokens_clean %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+train_chapinero_tokens_clean %>%
+  count(property_id, word) %>%
+  spread(key = word, value = n, fill = 0)
+```
+
+```{r}
+library(dplyr)
+
+# Vector con palabras agrupadas
+parking <- c("parqueadero", "garaje")
+terrace <- "terraza"
+gym <- "gimnasio"
+laundry <- "lavanderia"
+elevator <- "ascensor"
+
+# Variable dummy para cada caracteristica
+dummies_df <- train_chapinero_tokens_clean %>%
+  mutate(binaria_parking = word %in% parking,
+         binaria_terrace = word %in% terrace,
+         binaria_gym = word %in% gym,
+         binaria_laundry = word %in% laundry,
+         binaria_elevator = word %in% elevator) %>%
+  group_by(property_id) %>%
+  summarise(across(starts_with("has_"), ~as.integer(any(.))))  # 1 si aparece, 0 si no
+
+# Unir a df 
+train_chapinero_final <- left_join(train_chapinero, dummies_df, by = "property_id")
+
+```
+
+
 Identificar distancia a parques
 
 ```{r}
@@ -480,6 +538,9 @@ skim(test_aptos)
 
 
 ```
+
+
+
 
 # 2. Entrenamiento de modelos
 
