@@ -250,6 +250,8 @@ leaflet() %>%
              lat = train_aptos$lat)
 ```
 
+Identificar Chapinero en Bogotá
+
 ```{r}
 # Ahora solo nos quedaremos con las observaciones que efectivamente están dentro de Chapinero y no están mal georeferenciadas
 limites <- getbb("Chapinero, Bogotá, Colombia")
@@ -267,6 +269,7 @@ leaflet() %>%
              lat = train_chapinero$lat)
 ```
 
+Identificar distancia a parques
 
 ```{r}
 # Definir el límite de Chapinero en Bogotá
@@ -333,8 +336,98 @@ p <- ggplot(train_chapinero, aes(x = distancia_parque)) +
 
 ggsave("../04_Views/GRAFICO8-DISTANCIAPARQUES.png", plot = p, dpi = 150, width = 8, height = 6)
 
+```
+
+Identificar distancia a bus
+```{r}
+# Definir el área de Chapinero
+limites_chapinero <- getbb("Chapinero, Bogotá, Colombia")
+
+# Descargar estaciones de TransMilenio (usualmente etiquetadas como 'bus_station' o 'platform')
+transmi_query <- opq(bbox = limites_chapinero) %>%
+  add_osm_feature(key = "public_transport", value = "platform") %>%
+  add_osm_feature(key = "bus", value = "yes", value_exact = FALSE)
+
+# Obtener datos como sf
+transmi_data <- osmdata_sf(transmi_query)
+
+# Usar puntos de plataformas si están disponibles
+transmi_sf <- transmi_data$osm_points %>%
+  dplyr::select(osm_id, name)
+
+# Verificar
+leaflet() %>%
+  addTiles() %>%
+  addCircles(data = transmi_sf, color = "red", radius = 50, label = ~name)
 
 ```
+
+```{r}
+# Convertir estaciones a sf si no lo son
+transmi_sf <- st_as_sf(transmi_sf)
+
+# Asegurar que ambos están en la misma proyección
+train_chapinero_sf <- st_as_sf(train_chapinero, coords = c("lon", "lat"), crs = 4326)
+train_chapinero_sf <- st_transform(train_chapinero_sf, 4326)
+transmi_sf <- st_transform(transmi_sf, 4326)
+
+# Calcular matriz de distancias
+dist_matrix_transmi <- st_distance(train_chapinero_sf, transmi_sf)
+
+# Obtener la distancia mínima a estación TransMilenio
+dist_min_transmi <- apply(dist_matrix_transmi, 1, min)
+
+# Agregarla a la base original
+train_chapinero <- train_chapinero %>%
+  mutate(distancia_transmi = dist_min_transmi)
+```
+
+Identificar distancia a CAI
+```{r}
+# Obtener bbox de Chapinero
+limites_chapinero <- getbb("Chapinero, Bogotá, Colombia")
+
+# Obtener CAI (policías)
+cai_query <- opq(bbox = limites_chapinero) %>%
+  add_osm_feature(key = "amenity", value = "police")
+
+cai_data <- osmdata_sf(cai_query)
+cai_sf <- cai_data$osm_points %>% dplyr::select(osm_id, name)
+cai_sf <- st_transform(cai_sf, 4326)
+
+# Convertir apartamentos a sf si no lo están
+aptos_sf <- st_as_sf(train_chapinero, coords = c("lon", "lat"), crs = 4326)
+
+# Calcular distancias
+dist_matrix_cai <- st_distance(aptos_sf, cai_sf)
+dist_min_cai <- apply(dist_matrix_cai, 1, min)
+
+# Agregar a la base
+train_chapinero <- train_chapinero %>%
+  mutate(distancia_cai = dist_min_cai)
+
+```
+
+Identificar distancia avenidas principales
+```{r}
+# Obtener vías principales en Chapinero
+vias_query <- opq(bbox = limites_chapinero) %>%
+  add_osm_feature(key = "highway", value = c("primary", "trunk"))
+
+vias_data <- osmdata_sf(vias_query)
+vias_sf <- vias_data$osm_lines %>% dplyr::select(osm_id, name)
+vias_sf <- st_transform(vias_sf, 4326)
+
+# Calcular distancia a la vía principal más cercana
+dist_matrix_vias <- st_distance(aptos_sf, vias_sf)
+dist_min_vias <- apply(dist_matrix_vias, 1, min)
+
+# Agregar a la base
+train_chapinero <- train_chapinero %>%
+  mutate(distancia_via_principal = dist_min_vias)
+
+```
+
 
 ## 1.2 Inspección y tratamiento de BD test
 
