@@ -323,7 +323,7 @@ dummies_df <- train_chapinero_tokens_clean %>%
   summarise(across(starts_with("binaria_"), ~as.integer(any(.))))
 
 # Unir a df 
-train_chapinero_final <- left_join(train_chapinero, dummies_df, by = "property_id")
+train_chapinero <- left_join(train_chapinero, dummies_df, by = "property_id")
 
 ```
 
