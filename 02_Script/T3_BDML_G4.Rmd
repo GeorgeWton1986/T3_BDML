@@ -281,8 +281,7 @@ library(dplyr)
 # Tokenización de la columna 'description'
 train_chapinero_tokens <- train_chapinero %>%
   unnest_tokens(word, description)  # Esto tokeniza por palabra
-
-# Ahora puedes limpiar (eliminar stopwords, por ejemplo)
+#Quitar stop words
 data("stop_words")
 train_chapinero_tokens_clean <- train_chapinero_tokens %>%
   anti_join(stop_words)
