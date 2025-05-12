@@ -91,7 +91,7 @@ train_miss <- skim(train_aptos) %>%
 
 nobs_train <- nrow(train_aptos)
 
-# Porcentaje de missing
+# Porcentaje de missing por cada caracteristica
 train_aptos_miss<- train_miss %>% 
   mutate(p_missing= n_missing/nobs_train) %>% 
   filter(n_missing!= 0) %>% 
