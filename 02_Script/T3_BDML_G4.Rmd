@@ -250,7 +250,26 @@ leaflet() %>%
              lat = train_aptos$lat)
 ```
 
+Identificar localidades sin Chapinero
+
+```{r}
+limites <- getbb("Chapinero, Bogotá, Colombia")
+
+train_localidades <- train_aptos %>%
+  filter(
+    lon < limites[1, "min"] | lon > limites[1, "max"] |
+    lat < limites[2, "min"] | lat > limites[2, "max"]
+  )
+
+# Visualizar
+leaflet() %>%
+  addTiles() %>%
+  addCircles(lng = train_localidades$lon, 
+             lat = train_localidades$lat)
+```
+
 Identificar Chapinero en Bogotá
+
 
 ```{r}
 # Ahora solo nos quedaremos con las observaciones que efectivamente están dentro de Chapinero y no están mal georeferenciadas
@@ -279,23 +298,24 @@ library(tidytext)
 library(dplyr)
 
 # Tokenización de la columna 'description'
-train_chapinero_tokens <- train_chapinero %>%
+train_localidades_tokens <- train_localidades %>%
   unnest_tokens(word, description)  # Esto tokeniza por palabra
 #Quitar stop words
 data("stop_words")
-train_chapinero_tokens_clean <- train_chapinero_tokens %>%
+train_localidades_tokens_clean <- train_localidades_tokens %>%
   anti_join(stop_words)
 
 ```
+
 Palabras más comunes
 
 ```{r}
-train_chapinero_tokens_clean %>%
+train_localidades_tokens_clean %>%
   count(word, sort = TRUE)
 ```
 
 ```{r}
-train_chapinero_tokens_clean %>%
+train_localidades_tokens_clean %>%
   count(property_id, word) %>%
   spread(key = word, value = n, fill = 0)
 ```
