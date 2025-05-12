@@ -299,7 +299,7 @@ library(dplyr)
 
 # Tokenización de la columna 'description'
 train_localidades_tokens <- train_localidades %>%
-  unnest_tokens(word, description)  # Esto tokeniza por palabra
+  unnest_tokens(word, description)
 #Quitar stop words
 data("stop_words")
 train_localidades_tokens_clean <- train_localidades_tokens %>%
@@ -326,10 +326,10 @@ Creación variables externas desde la descripción
 library(dplyr)
 
 # Vector con palabras agrupadas
-parking <- c("parqueadero", "garaje")
-terrace <- "terraza"
+parking <- c("parqueadero", "garaje", "parqueaderos")
+terrace <- "terraza, "balcon") 
 gym <- "gimnasio"
-laundry <- "lavanderia"
+deposit <- "deposito"
 elevator <- "ascensor"
 
 # Variable dummy para cada caracteristica
