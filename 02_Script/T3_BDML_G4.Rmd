@@ -315,9 +315,9 @@ train_localidades_tokens_clean %>%
 ```
 
 ```{r}
-train_localidades_tokens_clean %>%
-  count(property_id, word) %>%
-  spread(key = word, value = n, fill = 0)
+#train_localidades_tokens_clean %>%
+  #count(property_id, word) %>%
+  #spread(key = word, value = n, fill = 0)
 ```
 
 Creación variables externas desde la descripción 
@@ -325,15 +325,15 @@ Creación variables externas desde la descripción
 ```{r}
 library(dplyr)
 
-# Vector con palabras agrupadas
-parking <- c("parqueadero", "garaje", "parqueaderos")
-terrace <- "terraza, "balcon") 
+#Vector palabras agrupadas
+parking <- c("parqueadero", "garaje", "parqueaderos", "garajes")
+terrace <- c("terraza", "balcon")
 gym <- "gimnasio"
-deposit <- "deposito"
+laundry <- "lavanderia"
 elevator <- "ascensor"
 
-# Variable dummy para cada caracteristica
-dummies_df <- train_chapinero_tokens_clean %>%
+#Variable dummy para cada caracteristica
+dummies_df <- train_localidades_tokens_clean %>%
   mutate(binaria_parking = word %in% parking,
          binaria_terrace = word %in% terrace,
          binaria_gym = word %in% gym,
@@ -343,10 +343,162 @@ dummies_df <- train_chapinero_tokens_clean %>%
   summarise(across(starts_with("binaria_"), ~as.integer(any(.))))
 
 # Unir a df 
-train_chapinero <- left_join(train_chapinero, dummies_df, by = "property_id")
+train_localidades <- left_join(train_localidades, dummies_df, by = "property_id")
 
 ```
 
+##Localidades sin Chapiner (NICOLAS)
+
+Identificar distancia a parques
+
+```{r}
+# Obtener los límites generales de Bogotá
+limites_bogota <- getbb("Bogotá, Colombia")
+
+# Extraer todos los parques en Bogotá
+parques_bogota <- opq(bbox = limites_bogota) %>%
+  add_osm_feature(key = "leisure", value = "park")
+
+# Convertir a formato sf
+parques_sf_bogota <- osmdata_sf(parques_bogota)
+
+# Seleccionar la geometría relevante (puede ser polygons o multipolygons según el resultado)
+parques_bogota_geometria <- parques_sf_bogota$osm_polygons %>%
+  dplyr::select(osm_id, name)
+
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = parques_bogota_geometria, color = "red", weight = 2, opacity = 0.8, popup = parques_bogota_geometria$name)
+
+```
+
+
+```{r}
+# Calcular los centroides de los parques en Bogotá
+centroides_bogota <- st_centroid(parques_bogota_geometria, byid = TRUE)
+
+# Extraer coordenadas
+centroides_bogota <- centroides_bogota %>%
+  mutate(x = st_coordinates(centroides_bogota)[, "X"],
+         y = st_coordinates(centroides_bogota)[, "Y"])
+
+# Convertir a objeto sf
+centroides_bogota_sf <- st_as_sf(centroides_bogota, coords = c("x", "y"), crs = 4326)
+
+# Visualizar los centroides de los parques en Bogotá
+leaflet() %>%
+  addTiles() %>%
+  addCircles(data = centroides_bogota_sf, color = "darkgreen", radius = 50, opacity = 0.7)
+
+```
+
+
+```{r}
+# Convertir los apartamentos fuera de Chapinero a objeto sf
+sf_aptos_sin_chapinero <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
+
+# Calcular la distancia entre apartamentos y centroides de parques de Bogotá
+dist_matrix_sin_chapinero <- st_distance(sf_aptos_sin_chapinero, centroides_bogota_sf)
+
+# Obtener la distancia mínima para cada apartamento
+dist_min_sin_chapinero <- apply(dist_matrix_sin_chapinero, 1, min)
+
+# Agregar la distancia mínima a la base de datos
+train_localidades <- train_localidades %>%
+  mutate(distancia_parque = dist_min_sin_chapinero)
+
+# Crear histograma
+p2 <- ggplot(train_localidades, aes(x = distancia_parque)) +
+  geom_histogram(bins = 50, fill = "darkgreen", alpha = 0.5) +
+  labs(x = "Distancia mínima a un parque (m)", y = "Cantidad",
+       title = "Distribución de distancia a parques - resto de Bogotá") +
+  theme_bw()
+
+ggsave("../04_Views/GRAFICO8B-DISTANCIAPARQUES_RESTO.png", plot = p2, dpi = 150, width = 8, height = 6)
+
+```
+
+
+Identificar distancia a bus
+
+```{r}
+
+
+```
+
+
+Identificar distancia a CAI
+
+```{r}
+# Obtener bbox de Bogotá
+limites_bogota <- getbb("Bogotá, Colombia")
+
+# Obtener CAI (policías) en Bogotá
+cai_query_bogota <- opq(bbox = limites_bogota) %>%
+  add_osm_feature(key = "amenity", value = "police")
+
+# Obtener datos de CAI
+cai_data_bogota <- osmdata_sf(cai_query_bogota)
+cai_sf_bogota <- cai_data_bogota$osm_points %>% dplyr::select(osm_id, name)
+cai_sf_bogota <- st_transform(cai_sf_bogota, 4326)
+
+# Convertir apartamentos fuera de Chapinero a sf
+aptos_sf_sin_chapinero <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
+
+# Calcular distancias entre los apartamentos y los CAI de Bogotá
+dist_matrix_cai_sin_chapinero <- st_distance(aptos_sf_sin_chapinero, cai_sf_bogota)
+dist_min_cai_sin_chapinero <- apply(dist_matrix_cai_sin_chapinero, 1, min)
+
+# Agregar la distancia mínima a la base de datos
+train_localidades <- train_localidades %>%
+  mutate(distancia_cai = dist_min_cai_sin_chapinero)
+
+# Visualizar las distancias a los CAI
+ggplot(train_localidades, aes(x = distancia_cai)) +
+  geom_histogram(bins = 50, fill = "darkred", alpha = 0.5) +
+  labs(x = "Distancia mínima a un CAI (m)", y = "Cantidad",
+       title = "Distribución de la distancia a los CAI en el resto de Bogotá") +
+  theme_bw()
+
+# Guardar el gráfico
+ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, height = 6)
+
+```
+
+Identificar distancia a CAI
+
+```{r}
+# Definir el área de Bogotá (cubre todas las localidades)
+limites_bogota <- getbb("Bogotá, Colombia")
+
+# Descargar vías principales en Bogotá
+vias_query_bogota <- opq(bbox = limites_bogota) %>%
+  add_osm_feature(key = "highway", value = c("primary", "trunk"))
+
+# Obtener datos como sf
+vias_data_bogota <- osmdata_sf(vias_query_bogota)
+
+# Usar líneas de vías principales si están disponibles
+vias_sf_bogota <- vias_data_bogota$osm_lines %>% dplyr::select(osm_id, name)
+vias_sf_bogota <- st_transform(vias_sf_bogota, 4326)
+
+# Convertir apartamentos a sf si no lo están
+aptos_sf_bogota <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
+
+# Calcular distancias a las avenidas principales más cercanas
+dist_matrix_vias_bogota <- st_distance(aptos_sf_bogota, vias_sf_bogota)
+dist_min_vias_bogota <- apply(dist_matrix_vias_bogota, 1, min)
+
+# Agregar a la base de datos de apartamentos en Bogotá
+train_localidades <- train_localidades %>%
+  mutate(distancia_via_principal = dist_min_vias_bogota)
+
+
+
+```
+
+
+##CHAPINERO (ZAIRA Y LAURA)
 
 Identificar distancia a parques
 
