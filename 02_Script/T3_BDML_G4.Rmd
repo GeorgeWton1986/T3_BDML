@@ -422,7 +422,13 @@ ggsave("../04_Views/GRAFICO8B-DISTANCIAPARQUES_RESTO.png", plot = p2, dpi = 150,
 Identificar distancia a bus
 
 ```{r}
+# Definir el área de Chapinero
+limites_chapinero <- getbb("Chapinero, Bogotá, Colombia")
 
+# Descargar estaciones de TransMilenio en Bogotá
+transmi_query_bogota <- opq(bbox = limites_chapinero) %>%
+  add_osm_feature(key = "public_transport", value = "platform") %>%
+  add_osm_feature(key = "bus", value = "yes", value_exact = FALSE)
 ```
 
 
