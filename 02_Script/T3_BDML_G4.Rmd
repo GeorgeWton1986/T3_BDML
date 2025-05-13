@@ -423,8 +423,8 @@ Identificar distancia a bus
 
 ```{r}
 
-
 ```
+
 
 
 Identificar distancia a CAI
@@ -492,8 +492,6 @@ dist_min_vias_bogota <- apply(dist_matrix_vias_bogota, 1, min)
 # Agregar a la base de datos de apartamentos en Bogotá
 train_localidades <- train_localidades %>%
   mutate(distancia_via_principal = dist_min_vias_bogota)
-
-
 
 ```
 
