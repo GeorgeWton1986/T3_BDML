@@ -251,6 +251,7 @@ leaflet() %>%
 ```
 
 Carga de datos espaciales
+
 ```{r}
 # Columas númericas
 train_aptos <- train_aptos %>%
@@ -264,7 +265,6 @@ print(train_aptos_sf)
 
 ```
 
-
 Identificar localidades sin Chapinero
 
 ```{r}
@@ -275,7 +275,7 @@ limites <- getbb("Chapinero, Bogotá, Colombia")
 train_aptos_sf <- st_as_sf(train_aptos, coords = c("lon", "lat"), crs = 4326)
 
 
-# Filtrar límites
+# Filtrar límites sin chapinero
 train_localidades <- train_aptos %>%
   filter(
     lon < limites[1, "min"] | lon > limites[1, "max"] |
@@ -290,7 +290,6 @@ leaflet() %>%
 ```
 
 Identificar Chapinero en Bogotá
-
 
 ```{r}
 # Ahora solo nos quedaremos con las observaciones que efectivamente están dentro de Chapinero y no están mal georeferenciadas
@@ -308,7 +307,6 @@ leaflet() %>%
   addCircles(lng = train_chapinero$lon, 
              lat = train_chapinero$lat)
 ```
-
 
 Variables en descripción; Tokenizar
 
@@ -339,7 +337,7 @@ train_localidades_tokens_clean %>%
   #spread(key = word, value = n, fill = 0)
 ```
 
-Creación variables externas desde la descripción 
+Creación variables externas desde la descripción
 
 ```{r}
 library(dplyr)
@@ -366,7 +364,7 @@ train_localidades <- left_join(train_localidades, dummies_df, by = "property_id"
 
 ```
 
-1) Identificar distancia a parques (revisarlo porque no carga)
+1)  Identificar distancia a parques (revisarlo porque no carga)
 
 ```{r}
 # Convertir train_localidades a un objeto sf (asegúrate de tener lon y lat en formato numérico)
@@ -401,8 +399,8 @@ train_localidades$distancia_parque <- dist_min_parque
 
 ```
 
-
 Visualizar gráfico
+
 ```{r}
 
 # Crear histograma
@@ -416,8 +414,7 @@ ggsave("../04_Views/GRAFICO8B-DISTANCIAPARQUES_RESTO.png", plot = p2, dpi = 150,
 
 ```
 
-
-2) Identificar distancia a CAI
+2)  Identificar distancia a CAI
 
 ```{r}
 # Obtener los límites de Bogotá
@@ -440,6 +437,7 @@ head(cai_sf_bogota)
 
 
 ```
+
 Calcular distancia mínima a un CAI
 
 ```{r}
@@ -475,7 +473,8 @@ ggplot(train_localidades, aes(x = distancia_cai)) +
 # Guardar el gráfico
 ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, height = 6)
 ```
-3) Identificar distancia a bus
+
+3)  Identificar distancia a bus
 
 ```{r}
 # Obtener los límites de Bogotá
@@ -496,7 +495,9 @@ bus_sf_bogota <- bus_data_bogota$osm_points %>%
 head(bus_sf_bogota)
 
 ```
+
 Distancia mínima a una parada de bus
+
 ```{r}
 # Convertir train_localidades a sf 
 train_localidades_sf <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
@@ -514,6 +515,7 @@ train_localidades <- train_localidades %>%
 ```
 
 Visualizar gráfico
+
 ```{r}
 library(scales)
 
@@ -528,7 +530,8 @@ ggplot(train_localidades, aes(x = distancia_bus)) +
 ggsave("../04_Views/GRAFICO8D-DISTANCIABUS_RESTO.png", dpi = 150, width = 8, height = 6)
 
 ```
-4) Identificar distancia a avenidas principales
+
+4)  Identificar distancia a avenidas principales
 
 ```{r}
 # Obtener los límites de Bogotá
@@ -571,6 +574,7 @@ summary(train_localidades$distancia_avenida)
 ```
 
 Visualizar gráfico
+
 ```{r}
 ggplot(train_localidades, aes(x = distancia_avenida)) +
   geom_histogram(bins = 50, fill = "darkblue", alpha = 0.6) +
@@ -583,7 +587,6 @@ ggsave("../04_Views/GRAFICO8D-DISTANCIAAVENIDA_RESTO.png", dpi = 150, width = 8,
 
 
 ```
-
 
 ## 1.2 Inspección y tratamiento de BD test
 
@@ -621,7 +624,8 @@ test_aptos <- test_aptos  %>%
 skim(test_aptos)
 ```
 
-1) Distancia a parques- Formato espacial
+1)  Distancia a parques- Formato espacial
+
 ```{r}
 # Asegúrate de que test_aptos tenga coordenadas en formato espacial (sf)
 test_aptos_sf <- st_as_sf(test_aptos, coords = c("lon", "lat"), crs = 4326)
@@ -657,9 +661,6 @@ head(test_aptos)
 
 
 ```
-
-
-
 
 # 2. Entrenamiento de modelos
 
