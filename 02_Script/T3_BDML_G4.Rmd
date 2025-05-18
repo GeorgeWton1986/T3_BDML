@@ -821,11 +821,11 @@ elevator <- "ascensor"
 
 #Variable dummy para cada caracteristica
 dummies_df_test <- test_chapinero_tokens_clean %>%
-  mutate(binaria_parking_test = word %in% parking,
-         binaria_terrace_test = word %in% terrace,
-         binaria_gym_test = word %in% gym,
-         binaria_laundry_test = word %in% laundry,
-         binaria_elevator_test = word %in% elevator) %>%
+  mutate(binaria_parking = word %in% parking,
+         binaria_terrace = word %in% terrace,
+         binaria_gym = word %in% gym,
+         binaria_laundry = word %in% laundry,
+         binaria_elevator = word %in% elevator) %>%
   group_by(property_id) %>%
   summarise(across(starts_with("binaria_"), ~as.integer(any(.))))
 
