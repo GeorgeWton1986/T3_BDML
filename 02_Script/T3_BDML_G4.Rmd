@@ -818,7 +818,7 @@ test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 # 2. Entrenamiento de modelos
 
 ```{r}
-# 1. Verificar y asegurar que sea un objeto espacial con CRS 3116
+#1. Verificar y asegurar que sea un objeto espacial con CRS 3116
 if(!inherits(train_localidades, "sf")) {
   train_localidades_sf <- st_as_sf(
     train_localidades,
@@ -829,7 +829,7 @@ if(!inherits(train_localidades, "sf")) {
   train_localidades_sf <- train_localidades
 }
 
-# Verificar el CRS este correcto
+#2. Verificar el CRS este correcto
 print(st_crs(train_localidades_sf))
 ```
 
@@ -839,8 +839,8 @@ print(st_crs(train_localidades_sf))
 
 ```{r}
 #1. Eliminar variables innecesarias
-train_localidades_EN <- train_localidades %>%
-  select(-c(property_id, title,description))
+train_localidades_EN <- st_drop_geometry(train_localidades_sf) %>%
+  select(-c(property_id, title, description))
 
 #2. Crear la receta del entranamiento
 receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
@@ -873,8 +873,18 @@ workflow_EN_1 <- workflow() %>%
 #Este metodo de VC por bloques permite:
   #1. Mantener la independencia espacial entre los bloques
   #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+set.seed(123)
+block_folds_EN <- spatial_block_cv(train_localidades_sf, v = 5)
 
+#7. Verificación visual de los bloques de la valiación cruzada
+autoplot(block_folds_EN)
 
+#8. Incluir la libreria purrr
+#Vamos a ver el proceso de la validacion cruzada 
+library(purrr)
+walk(block_folds$splits, function(x) print(autoplot(x)))
+
+#9. Entrenamiento del modelo con validacion cruzada espacial
 
 
 ```
