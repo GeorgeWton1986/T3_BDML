@@ -39,7 +39,8 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        leaflet,     # Mapas interactivos
        gridExtra,   # Graficar en grid
        tmaptools,   # Geocode_OMS()
-       geosphere   # Calcular distancias geográficas como Haversine
+       geosphere,   # Calcular distancias geográficas como Haversine
+       tidymodels   # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        )
 ```
 
@@ -555,6 +556,23 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 ```
 
+```{r}
+#1. Verificar y asegurar que sea un objeto espacial con CRS 3116
+if(!inherits(train_localidades, "sf")) {
+  train_localidades_sf <- st_as_sf(
+    train_localidades,
+    coords = c("lon", "lat"),
+    crs = 3116
+  )
+} else {
+  train_localidades_sf <- train_localidades
+}
+
+#2. Verificar el CRS este correcto
+print(st_crs(train_localidades_sf))
+```
+
+
 Visualizar gráfico
 
 ```{r}
@@ -817,22 +835,6 @@ test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 
 # 2. Entrenamiento de modelos
 
-```{r}
-#1. Verificar y asegurar que sea un objeto espacial con CRS 3116
-if(!inherits(train_localidades, "sf")) {
-  train_localidades_sf <- st_as_sf(
-    train_localidades,
-    coords = c("lon", "lat"),
-    crs = 3116
-  )
-} else {
-  train_localidades_sf <- train_localidades
-}
-
-#2. Verificar el CRS este correcto
-print(st_crs(train_localidades_sf))
-```
-
 ## 2.1 Elastic net
 
 ### 2.1.1 Entrenamiento
@@ -843,6 +845,8 @@ train_localidades_EN <- st_drop_geometry(train_localidades_sf) %>%
   select(-c(property_id, title, description))
 
 #2. Crear la receta del entranamiento
+# Cargar explícitamente el paquete recipes
+library(recipes)
 receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
   step_normalize(all_predictors()) %>% # Convertir variables categóricas a dummies
   step_dummy(all_nominal_predictors()%>% # Escalar predictores numéricos
@@ -865,7 +869,7 @@ grid_elastic <- grid_regular(
 
 #5. Crear un workflow (flujo de trabajo)
 
-workflow_EN_1 <- workflow() %>%
+workflow_1_EN <- workflow() %>%
   add_recipe(receta_1_EN) %>%
   add_model(modelo_1_EN)
 
@@ -885,7 +889,14 @@ library(purrr)
 walk(block_folds$splits, function(x) print(autoplot(x)))
 
 #9. Entrenamiento del modelo con validacion cruzada espacial
-
+resultados_1_EN <- workflow_1_EN %>%
+  tune_grid(
+    resamples = block_folds,
+    grid = grid_elastic,
+    metrics = metric_set(rmse, mae, rsq)
+  )
+#10. Ver los resultados del modelo 1
+autoplot(resultados_tune)
 
 ```
 
