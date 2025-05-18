@@ -39,7 +39,8 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        leaflet,     # Mapas interactivos
        gridExtra,   # Graficar en grid
        tmaptools,   # Geocode_OMS()
-       geosphere   # Calcular distancias geográficas como Haversine
+       geosphere,   # Calcular distancias geográficas como Haversine
+       tidymodels   # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        )
 ```
 
@@ -555,6 +556,23 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 ```
 
+```{r}
+#1. Verificar y asegurar que sea un objeto espacial con CRS 3116
+if(!inherits(train_localidades, "sf")) {
+  train_localidades_sf <- st_as_sf(
+    train_localidades,
+    coords = c("lon", "lat"),
+    crs = 3116
+  )
+} else {
+  train_localidades_sf <- train_localidades
+}
+
+#2. Verificar el CRS este correcto
+print(st_crs(train_localidades_sf))
+```
+
+
 Visualizar gráfico
 
 ```{r}
@@ -823,17 +841,19 @@ test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 
 ```{r}
 #1. Eliminar variables innecesarias
-train_localidades_EN <- train_localidades %>%
-  select(-c(property_id, title,description))
+train_localidades_EN <- st_drop_geometry(train_localidades_sf) %>%
+  select(-c(property_id, title, description))
 
 #2. Crear la receta del entranamiento
+# Cargar explícitamente el paquete recipes
+library(recipes)
 receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
   step_normalize(all_predictors()) %>% # Convertir variables categóricas a dummies
   step_dummy(all_nominal_predictors()%>% # Escalar predictores numéricos
   step_zv(all_predictors()))# Remover predictores con varianza cero
 
 #3. Definir el modelo
-modelo_elastic_net_1 <- linear_reg(penalty = tune(), mixture = tune()) %>%
+modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet")
 
 #4. Especificar los paramatros alpha y lambda EN
@@ -848,6 +868,36 @@ grid_elastic <- grid_regular(
 )
 
 #5. Crear un workflow (flujo de trabajo)
+
+workflow_1_EN <- workflow() %>%
+  add_recipe(receta_1_EN) %>%
+  add_model(modelo_1_EN)
+
+#6. Estimacion de validacion cruzada espacial por bloques
+#Este metodo de VC por bloques permite:
+  #1. Mantener la independencia espacial entre los bloques
+  #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+set.seed(123)
+block_folds_EN <- spatial_block_cv(train_localidades_sf, v = 5)
+
+#7. Verificación visual de los bloques de la valiación cruzada
+autoplot(block_folds_EN)
+
+#8. Incluir la libreria purrr
+#Vamos a ver el proceso de la validacion cruzada 
+library(purrr)
+walk(block_folds$splits, function(x) print(autoplot(x)))
+
+#9. Entrenamiento del modelo con validacion cruzada espacial
+resultados_1_EN <- workflow_1_EN %>%
+  tune_grid(
+    resamples = block_folds,
+    grid = grid_elastic,
+    metrics = metric_set(rmse, mae, rsq)
+  )
+#10. Ver los resultados del modelo 1
+autoplot(resultados_tune)
+
 ```
 
 ### 2.1.2 Predicción
