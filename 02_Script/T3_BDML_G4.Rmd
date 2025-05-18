@@ -568,7 +568,7 @@ ggplot(train_localidades, aes(x = distancia_avenida)) +
 ggsave("../04_Views/GRAFICO8D-DISTANCIAAVENIDA_RESTO.png", dpi = 150, width = 8, height = 6)
 ```
 
-## 1.1 Inspección y tratamiento de BD test
+## 1.3 Inspección y tratamiento de BD test
 
 ```{r}
 # Nombre de las columnas de la base train_hogares
