@@ -832,6 +832,98 @@ dummies_df_test <- test_chapinero_tokens_clean %>%
 # Unir a df 
 test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 ```
+## 1.4 Convertir a factores base entrenamiento
+```{r}
+# Variables categóricas a convertir en factor
+cols_factor <- c(
+  'year',
+  'property_type',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+# Filtrar y preparar datos
+train_factors <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor), as.factor)) %>%
+  as.data.frame()
+
+# Quitar NAs del dataframe preparado
+train_factors <- na.omit(train_factors)
+
+# Variables predictoras
+variables_predictoras <- c(
+  'year',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'precio_mt2',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+# Definir fórmula del modelo
+variables <- paste(variables_predictoras, collapse = " + ")
+formula_modelo <- as.formula(paste("price ~", variables))
+
+```
+
+Convertir a factores base test
+```{r}
+# Las columnas estén en el mismo formato que en entrenamiento
+cols_factor <- c(
+  'year',
+  'property_type',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+# Preprocesamiento test
+test <- test_chapinero %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor), as.factor)) %>%
+  as.data.frame()
+```
+
+
 
 # 2. Entrenamiento de modelos
 
@@ -959,7 +1051,30 @@ write.csv(pred_CARTS3,
 ### 2.3.1 Entrenamiento
 
 ```{r}
+fitControl <- trainControl(method = "oob")
 
+tree_grid <- expand.grid(
+  mtry = 5,
+  splitrule = "variance",
+  min.node.size = c(2, 3, 4)
+)
+
+# Entrenar el modelo con toda la base
+model_forest <- train(
+  formula_modelo,
+  data = train_factors,
+  method = "ranger",
+  trControl = fitControl,
+  tuneGrid = tree_grid,
+  num.trees = 500,
+  importance = "permutation"
+)
+
+# Ver el mejor modelo y métricas OOB
+print(model_forest)
+
+# Importancia de variables
+varImp(model_forest)
 ```
 
 ### 2.3.2 Predicción
