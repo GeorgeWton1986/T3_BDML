@@ -817,6 +817,22 @@ test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 
 # 2. Entrenamiento de modelos
 
+```{r}
+# 1. Verificar y asegurar que sea un objeto espacial con CRS 3116
+if(!inherits(train_localidades, "sf")) {
+  train_localidades_sf <- st_as_sf(
+    train_localidades,
+    coords = c("lon", "lat"),
+    crs = 3116
+  )
+} else {
+  train_localidades_sf <- train_localidades
+}
+
+# Verificar el CRS este correcto
+print(st_crs(train_localidades_sf))
+```
+
 ## 2.1 Elastic net
 
 ### 2.1.1 Entrenamiento
@@ -833,7 +849,7 @@ receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
   step_zv(all_predictors()))# Remover predictores con varianza cero
 
 #3. Definir el modelo
-modelo_elastic_net_1 <- linear_reg(penalty = tune(), mixture = tune()) %>%
+modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet")
 
 #4. Especificar los paramatros alpha y lambda EN
@@ -848,6 +864,19 @@ grid_elastic <- grid_regular(
 )
 
 #5. Crear un workflow (flujo de trabajo)
+
+workflow_EN_1 <- workflow() %>%
+  add_recipe(receta_1_EN) %>%
+  add_model(modelo_1_EN)
+
+#6. Estimacion de validacion cruzada espacial por bloques
+#Este metodo de VC por bloques permite:
+  #1. Mantener la independencia espacial entre los bloques
+  #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+
+
+
+
 ```
 
 ### 2.1.2 Predicción
