@@ -1058,7 +1058,8 @@ prediccion_EN <- predict(final_model, new_data = test_EN)
 
 resultado_EN_1 <- test_EN %>%
   select(property_id) %>%
-  bind_cols(prediccion_EN)
+  bind_cols(prediccion_EN)%>%
+  rename(price = .pred)
 
 head(resultado_EN_1)
 
@@ -1113,14 +1114,14 @@ print(paste("Número de outliers en predicciones:", nrow(outliers)))
 ```{r}
 # Descargar archivo
 write.csv(resultado_EN_1,
-          "C:/../03_Stores/10-04_G4_EN1.csv", row.names = FALSE, 
+          "../03_Stores/18-05_G4_EN1.csv", row.names = FALSE, 
           quote = FALSE)
 
 write.csv(pred_EN_2,
           "C:/../03_Stores/10-04_G4_EN2.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_EN3,
+write.csv(pred_EN_3,
           "C:/../03_Stores/10-04_G4_EN3.csv", row.names = FALSE, 
           quote = FALSE)
 ```
