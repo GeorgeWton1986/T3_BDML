@@ -423,7 +423,8 @@ cai_data_bogota <- osmdata_sf(cai_bogota)
 cai_sf_bogota <- cai_data_bogota$osm_points %>%
   dplyr::select(osm_id, name) %>%
   st_transform(crs = 4326)  # Asegurarse de que el CRS coincida con el de los apartamentos
-# Revisar los datos de los parques
+
+# Revisar los datos de los CAI's
 
 head(cai_sf_bogota)
 #¡¡¡IMPORTANTE!!!!
@@ -814,8 +815,6 @@ dummies_df_test <- test_chapinero_tokens_clean %>%
 test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 ```
 
-
-
 # 2. Entrenamiento de modelos
 
 ## 2.1 Elastic net
@@ -823,7 +822,32 @@ test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 ### 2.1.1 Entrenamiento
 
 ```{r}
+#1. Eliminar variables innecesarias
+train_localidades_EN <- train_localidades %>%
+  select(-c(property_id, title,description))
 
+#2. Crear la receta del entranamiento
+receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
+  step_normalize(all_predictors()) %>% # Convertir variables categóricas a dummies
+  step_dummy(all_nominal_predictors()%>% # Escalar predictores numéricos
+  step_zv(all_predictors()))# Remover predictores con varianza cero
+
+#3. Definir el modelo
+modelo_elastic_net_1 <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet")
+
+#4. Especificar los paramatros alpha y lambda EN
+#Estamos creando la cuadricula de búsqueda para los hiperparámetros del modelo Elastric Net
+#Penalty: lambda o alpha que controla la regularización
+#Mixture: es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
+
+grid_elastic <- grid_regular(
+  penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  mixture(range = c(0, 1)),                          # Explorar de 0 a 1
+  levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
+)
+
+#5. Crear un workflow (flujo de trabajo)
 ```
 
 ### 2.1.2 Predicción
