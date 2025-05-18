@@ -40,7 +40,8 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        gridExtra,   # Graficar en grid
        tmaptools,   # Geocode_OMS()
        geosphere,   # Calcular distancias geográficas como Haversine
-       tidymodels   # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
+       tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
+       spatialsample # Muestreo espacial
        )
 ```
 
@@ -622,7 +623,7 @@ test_aptos <- test_aptos  %>%
 skim(test_aptos)
 ```
 
-Seleccionar las viviendas de la localidad de Chipenaro para Test 
+Seleccionar las viviendas de la localidad de Chapinero para Test 
 ```{r}
 # Asegurarte de que lon y lat sean numéricos
 test_aptos <- test_aptos %>%
@@ -832,6 +833,7 @@ dummies_df_test <- test_chapinero_tokens_clean %>%
 # Unir a df 
 test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
 ```
+
 ## 1.4 Convertir a factores base entrenamiento
 ```{r}
 # Variables categóricas a convertir en factor
@@ -866,7 +868,7 @@ train_factors <- train_localidades %>%
   as.data.frame()
 
 # Quitar NAs del dataframe preparado
-train_factors <- na.omit(train_factors)
+train_factors <- na.omit(train_factors) ## Esta es la base que se usará para el entrenamiento
 
 # Variables predictoras
 variables_predictoras <- c(
@@ -923,8 +925,6 @@ test <- test_chapinero %>%
   as.data.frame()
 ```
 
-
-
 # 2. Entrenamiento de modelos
 
 ## 2.1 Elastic net
@@ -933,20 +933,19 @@ test <- test_chapinero %>%
 
 ```{r}
 #1. Eliminar variables innecesarias
-train_localidades_EN <- st_drop_geometry(train_localidades_sf) %>%
-  select(-c(property_id, title, description))
+train_1_EN <- train_factors %>%
+  select(-property_id)
 
 #2. Crear la receta del entranamiento
 # Cargar explícitamente el paquete recipes
-library(recipes)
-receta_1_EN <- recipe (price ~., data = train_localidades_EN) %>%
-  step_normalize(all_predictors()) %>% # Convertir variables categóricas a dummies
-  step_dummy(all_nominal_predictors()%>% # Escalar predictores numéricos
-  step_zv(all_predictors()))# Remover predictores con varianza cero
+receta_1_EN <- recipe(price ~ ., data = train_1_EN) %>%
+  step_normalize(distancia_cai, distancia_mall, distancia_bus, distancia_avenida) %>% #normalizar solo predictores numéricos (distancias)
+  step_dummy(all_nominal_predictors()) %>% ## Convertir variables categóricas a dummies
+  step_zv(all_predictors()) #Remover predictores con varianza cero
 
 #3. Definir el modelo
 modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
-  set_engine("glmnet")
+  set_engine("glmnet") 
 
 #4. Especificar los paramatros alpha y lambda EN
 #Estamos creando la cuadricula de búsqueda para los hiperparámetros del modelo Elastric Net
@@ -965,30 +964,38 @@ workflow_1_EN <- workflow() %>%
   add_recipe(receta_1_EN) %>%
   add_model(modelo_1_EN)
 
-#6. Estimacion de validacion cruzada espacial por bloques
+#6. Unir train_factors con train_localidades_sf por medio de property_id
+
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+#7. Estimacion de validacion cruzada espacial por bloques
 #Este metodo de VC por bloques permite:
   #1. Mantener la independencia espacial entre los bloques
   #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+library(spatialsample)
 set.seed(123)
-block_folds_EN <- spatial_block_cv(train_localidades_sf, v = 5)
+block_folds_EN <- spatial_block_cv(train_espacial, v = 5)
 
-#7. Verificación visual de los bloques de la valiación cruzada
+#8. Verificación visual de los bloques de la valiación cruzada
 autoplot(block_folds_EN)
 
-#8. Incluir la libreria purrr
+#9. Incluir la libreria purrr
 #Vamos a ver el proceso de la validacion cruzada 
 library(purrr)
-walk(block_folds$splits, function(x) print(autoplot(x)))
+walk(block_folds_EN$splits, function(x) print(autoplot(x)))
 
-#9. Entrenamiento del modelo con validacion cruzada espacial
+#10. Entrenamiento del modelo con validacion cruzada espacial
 resultados_1_EN <- workflow_1_EN %>%
   tune_grid(
-    resamples = block_folds,
+    resamples = block_folds_EN,
     grid = grid_elastic,
-    metrics = metric_set(rmse, mae, rsq)
+    metrics = metric_set(rmse, mae, rsq),
+    control = control_grid(verbose = TRUE)
   )
-#10. Ver los resultados del modelo 1
-autoplot(resultados_tune)
+#11. Ver los resultados del modelo 1
+autoplot(resultados_1_EN)
 
 ```
 
