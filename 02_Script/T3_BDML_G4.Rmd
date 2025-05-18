@@ -465,43 +465,40 @@ ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, hei
 3)  Identificar distancia hasta los paraderos de buses
 
 ```{r}
-# Obtener los límites de Bogotá
-limites_bogota <- getbb("Bogotá, Colombia")
-
-# Consultar estaciones de buses
-bus_query_bogota <- opq(bbox = limites_bogota) %>%
+# 1. Obtener las paradas de bus en Bogotá desde OSM
+bus_stop_bogota <- opq(bbox = limites_bogota) %>%
   add_osm_feature(key = "highway", value = "bus_stop")
 
-# Descargar datos de paradas de bus
-bus_data_bogota <- osmdata_sf(bus_query_bogota)
+# 2. Descargar los datos
+bus_stop_data <- osmdata_sf(bus_stop_bogota)
 
-# Extraer los puntos de paradas de bus como objeto sf
-bus_sf_bogota <- bus_data_bogota$osm_points %>%
+# 3. Extraer los puntos como objeto sf
+bus_stop_sf <- bus_stop_data$osm_points %>%
   dplyr::select(osm_id, name) %>%
-  st_transform(crs = 4326)  # Asegurar que esté en el mismo CRS que los apartamentos
+  st_transform(crs = 4326)
 
-head(bus_sf_bogota)
+# 4. Transformar las capas al sistema de coordenadas proyectado (MAGNA-SIRGAS)
+train_localidades_metros <- st_transform(train_localidades_sf, crs = 3116)
+bus_stop_metros <- st_transform(bus_stop_sf, crs = 3116)
 
-```
+# 5. Calcular matriz de distancias entre localidades y paradas de bus
+dist_matrix_bus <- st_distance(train_localidades_metros, bus_stop_metros)
 
-Distancia mínima a una parada de bus
-
-```{r}
-#Tiempo estimado 3 min
-# Convertir train_localidades a sf 
-train_localidades_sf <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
-
-# Calcular la matriz de distancias (en metros)
-dist_matrix_bus <- st_distance(train_localidades_sf, bus_sf_bogota)
-
-# Calcular la distancia mínima de cada apartamento a una parada de bus
+# 6. Calcular la distancia mínima a una parada de bus
 dist_min_bus <- apply(dist_matrix_bus, 1, min)
 
-# Agregar la distancia mínima como nueva variable
+# 7. Agregar a la base de datos
+train_localidades_metros$distancia_bus <- as.numeric(dist_min_bus)
+
+# 8. Agregar a train_localidades (si aún trabajas con versión en CRS 4326)
 train_localidades <- train_localidades %>%
   mutate(distancia_bus = dist_min_bus)
 
+# 9. Revisar resultados
+head(train_localidades)
+
 ```
+
 
 Visualizar gráfico
 
@@ -523,43 +520,38 @@ ggsave("../04_Views/GRAFICO8D-DISTANCIABUS_RESTO.png", dpi = 150, width = 8, hei
 4)  Identificar distancia a avenidas principales
 
 ```{r}
-# Obtener los límites de Bogotá
-limites_bogota <- getbb("Bogotá, Colombia")
 
-# Crear consulta para avenidas principales
-avenidas_query <- opq(bbox = limites_bogota) %>%
+# 1. Obtener avenidas principales en Bogotá desde OSM
+avenidas_bogota <- opq(bbox = limites_bogota) %>%
   add_osm_feature(key = "highway", 
-                  value = c("motorway", "trunk", "primary", "secondary"))
+                  value = "primary")
 
-# Descargar los datos
-avenidas_data <- osmdata_sf(avenidas_query)
+# 2. Descargar los datos
+avenidas_data <- osmdata_sf(avenidas_bogota)
 
-# Extraer las líneas (tramos viales)
+# 3. Extraer las líneas (vías suelen estar como `osm_lines`)
 avenidas_sf <- avenidas_data$osm_lines %>%
+  dplyr::select(osm_id, name, highway) %>%
   st_transform(crs = 4326)
 
-```
+# 4. Transformar al sistema proyectado para cálculo de distancias
+avenidas_metros <- st_transform(avenidas_sf, crs = 3116)
+train_localidades_metros <- st_transform(train_localidades_sf, crs = 3116)
 
-Distancia mínima de cada apto a una avenida ppal
+# 5. Calcular la distancia de cada punto a la vía más cercana
+dist_matrix_avenidas <- st_distance(train_localidades_metros, avenidas_metros)
 
-```{r}
-# Asegúrate de que todo esté en sf y con el CRS correcto
-train_localidades_sf <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
-avenidas_sf <- st_transform(avenidas_sf, crs = 4326)
+# 6. Distancia mínima a una avenida para cada punto
+dist_min_avenida <- apply(dist_matrix_avenidas, 1, min)
 
-# Encontrar el índice de la avenida más cercana a cada apartamento
-idx_avenida_cercana <- st_nearest_feature(train_localidades_sf, avenidas_sf)
+# 7. Agregar a la base de datos
+train_localidades_metros$distancia_avenida <- as.numeric(dist_min_avenida)
 
-# Calcular la distancia real solo a esa avenida
-dist_min_avenida <- st_distance(train_localidades_sf, avenidas_sf[idx_avenida_cercana, ], by_element = TRUE)
+train_localidades <- train_localidades %>%
+  mutate(distancia_avenida = dist_min_avenida)
 
-# Agregar a la base original
-train_localidades$distancia_avenida <- as.numeric(dist_min_avenida)
-
-# Verificar
-summary(train_localidades$distancia_avenida)
-
-
+# 8. Revisar resultados
+head(train_localidades)
 ```
 
 Visualizar gráfico
@@ -573,8 +565,6 @@ ggplot(train_localidades, aes(x = distancia_avenida)) +
 
 # Guardar gráfico
 ggsave("../04_Views/GRAFICO8D-DISTANCIAAVENIDA_RESTO.png", dpi = 150, width = 8, height = 6)
-
-
 ```
 
 ## 1.1 Inspección y tratamiento de BD test
