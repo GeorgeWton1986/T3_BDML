@@ -41,7 +41,8 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        tmaptools,   # Geocode_OMS()
        geosphere,   # Calcular distancias geográficas como Haversine
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
-       spatialsample # Muestreo espacial
+       spatialsample, # Muestreo espacial
+       vip
        )
 ```
 
@@ -949,8 +950,8 @@ modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 
 #4. Especificar los paramatros alpha y lambda EN
 #Estamos creando la cuadricula de búsqueda para los hiperparámetros del modelo Elastric Net
-#Penalty: lambda o alpha que controla la regularización
-#Mixture: es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
+#Penalty: lambda que controla la regularización
+#Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
 grid_elastic <- grid_regular(
   penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
@@ -991,17 +992,119 @@ resultados_1_EN <- workflow_1_EN %>%
   tune_grid(
     resamples = block_folds_EN,
     grid = grid_elastic,
-    metrics = metric_set(rmse, mae, rsq),
+    metrics = metric_set(mae),
     control = control_grid(verbose = TRUE)
   )
 #11. Ver los resultados del modelo 1
 autoplot(resultados_1_EN)
+
+#12. Resultado del modelo 1
+collect_metrics(resultados_1_EN)
+
+#13. Mostrar los mejores resultados
+show_best(resultados_1_EN, metric = "mae", n = 5)
+
+#14. Seleccionar los mejores hiperparámetros
+best_params <- select_best(resultados_1_EN, metric = "mae")
+print(best_params)
+
+#15. Finalizar el modelo con los mejores parámetros
+#Se realiza la implementación de los mejores parámetros en el workflow
+#¡¡¡IMPORTANTE!!!
+#La función finalize_workflow() sustituye los placeholders tune() por los valores específicos de best_params.
+#Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
+#Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
+final_workflow <- workflow_1_EN %>%
+  finalize_workflow(best_params)
+
+#16. Entrenar el modelo final con todos los datos
+final_model <- fit(final_workflow, data = train_1_EN)
+
+#17. Analizar los coeficientes del modelo
+# Ver todos los coeficientes (ordenados por magnitud)
+library(broom)
+coeficientes <- tidy(final_model) %>%
+  filter(term != "(Intercept)") %>%
+  arrange(desc(abs(estimate)))
+
+#18. Ver los coeficientes más importantes
+head(coeficientes, 10)
+
+#19. Ver la importancia de las variables
+library(vip)
+vip(extract_fit_parsnip(final_model), num_features = 20)
+
+#20. Calcular el coeficiente de variación de los precios reales
+cv_precios_reales <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
+print(paste("CV de los precios reales (%):", round(cv_precios_reales, 2)))
 
 ```
 
 ### 2.1.2 Predicción
 
 ```{r}
+#1. Tomar la base de test y prepararla para la predicción
+na_conteo_test <- colSums(is.na(test))
+print(na_conteo_test)
+
+test_EN <- test %>%
+  na.omit()
+
+str(test_EN)
+print(dim(test_EN))
+
+#2. Realizar predicciones en el conjunto de prueba
+prediccion_EN <- predict(final_model, new_data = test_EN)
+
+resultado_EN_1 <- test_EN %>%
+  select(property_id) %>%
+  bind_cols(prediccion_EN)
+
+head(resultado_EN_1)
+
+#3. Ver la distribución de las predicciones
+ggplot(prediccion_EN, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+#4. Calcular estadísticas básicas de las predicciones
+summary(prediccion_EN$.pred)
+
+#5. Calcular el coeficiente de variación de las predicciones
+cv_predicciones <- sd(prediccion_EN$.pred) / mean(prediccion_EN$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones, 2)))
+
+#6. Unir predicciones con otras variables
+
+analisis_segmentos <- test_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100
+  )
+
+print(analisis_segmentos)
+
+#7. Identificar posibles valores atípicos
+umbral_superior <- quantile(prediccion_EN$.pred, 0.975)
+umbral_inferior <- quantile(prediccion_EN$.pred, 0.025)
+
+outliers <- prediccion_EN %>%
+  filter(.pred > umbral_superior | .pred < umbral_inferior)
+
+print(paste("Número de outliers en predicciones:", nrow(outliers)))
 
 ```
 
@@ -1009,11 +1112,11 @@ autoplot(resultados_1_EN)
 
 ```{r}
 # Descargar archivo
-write.csv(pred_EN1,
+write.csv(resultado_EN_1,
           "C:/../03_Stores/10-04_G4_EN1.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_EN2,
+write.csv(pred_EN_2,
           "C:/../03_Stores/10-04_G4_EN2.csv", row.names = FALSE, 
           quote = FALSE)
 
