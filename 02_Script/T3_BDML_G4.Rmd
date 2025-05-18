@@ -251,61 +251,38 @@ leaflet() %>%
 ```
 
 Carga de datos espaciales
+Identificar localidades sin Chapinero
 
 ```{r}
 # Columas númericas
 train_aptos <- train_aptos %>%
   mutate(lon = as.numeric(lon), lat = as.numeric(lat))
 
-# Convertir las coordenadas de los apartamentos a un objeto espacial (sf)
-train_aptos_sf <- st_as_sf(train_aptos, coords = c("lon", "lat"), crs = 4326)
-
-print(train_aptos_sf)
-
-
-```
-
-Identificar localidades sin Chapinero
-
-```{r}
-limites <- getbb("Chapinero, Bogotá, Colombia")
+limite_chapinero <- getbb("Chapinero, Bogotá, Colombia")
 
 
 # Las coordenadas en EPSG:4326
-train_aptos_sf <- st_as_sf(train_aptos, coords = c("lon", "lat"), crs = 4326)
-
+train_aptos_sf <- st_as_sf(train_aptos, 
+                           coords = c("lon", "lat"), 
+                           crs = 4326)
 
 # Filtrar límites sin chapinero
 train_localidades <- train_aptos %>%
   filter(
-    lon < limites[1, "min"] | lon > limites[1, "max"] |
-    lat < limites[2, "min"] | lat > limites[2, "max"]
+    lon < limite_chapinero[1, "min"] | lon > limite_chapinero[1, "max"] |
+    lat < limite_chapinero[2, "min"] | lat > limite_chapinero[2, "max"]
   )
+
+#Train_localicadades NO incluye chapinero
+train_localidades_sf <- st_as_sf(train_localidades, 
+                                 coords = c("lon", "lat"), 
+                                 crs = 4326)
 
 # Visualizar
 leaflet() %>%
   addTiles() %>%
   addCircles(lng = train_localidades$lon, 
              lat = train_localidades$lat)
-```
-
-Identificar Chapinero en Bogotá
-
-```{r}
-# Ahora solo nos quedaremos con las observaciones que efectivamente están dentro de Chapinero y no están mal georeferenciadas
-limites <- getbb("Chapinero, Bogotá, Colombia")
-limites
-
-train_chapinero <- train_aptos %>%
-  filter(
-    between(lon, limites[1, "min"], limites[1, "max"]) & 
-    between(lat, limites[2, "min"], limites[2, "max"])
-  )
-
-leaflet() %>%
-  addTiles() %>%
-  addCircles(lng = train_chapinero$lon, 
-             lat = train_chapinero$lat)
 ```
 
 Variables en descripción; Tokenizar
@@ -364,39 +341,55 @@ train_localidades <- left_join(train_localidades, dummies_df, by = "property_id"
 
 ```
 
-1)  Identificar distancia a parques (revisarlo porque no carga)
+1)  Identificar distancia a Mall(revisarlo porque no carga)
 
 ```{r}
-# Convertir train_localidades a un objeto sf (asegúrate de tener lon y lat en formato numérico)
+# Obtener los límites de Bogotá
+limites_bogota <- getbb("Bogotá, Colombia")
 
-#Train_localicadades NO incluye chapinero
-train_localidades_sf <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
+mall_bogota <- opq(bbox = limites_bogota) %>%
+  add_osm_feature(key = "shop", 
+                  value = "mall")
 
-# Crear un buffer de 500 metros alrededor de cada apartamento (esto reduce el área de consulta)
-buffer_aptos <- st_buffer(train_localidades_sf, dist = 500)
+# Descargar datos de Mall
+mall_data_bogota <- osmdata_sf(mall_bogota)
 
-# Obtener el límite del buffer para hacer la consulta de parques más pequeña y precisa
-bbox_buffer <- st_bbox(buffer_aptos)
+# Extraer los puntos de los parques en Bogotá como un objeto sf
+mall_sf_bogota <- mall_data_bogota$osm_points %>%
+  dplyr::select(osm_id, name) %>%
+  st_transform(crs = 4326)  # Asegurarse de que el CRS coincida con el de los apartamentos
 
-# Consulta a OSM para parques dentro del área del buffer
-parques_query <- opq(bbox = bbox_buffer) %>%
-  add_osm_feature(key = "leisure", value = "park")
+# Revisar los datos de los parques
+head(mall_sf_bogota)
 
-# Descargar los datos de parques de la consulta
-parques_data <- osmdata_sf(parques_query)
+#¡¡¡IMPORTANTE!!!!
+#(MAGNA-SIRGAS / Colombia Bogota)
 
-# Extraer los polígonos de los parques (donde están los datos relevantes)
-parques_sf <- parques_data$osm_polygons %>%
-  st_transform(crs = 4326)  # Asegurarse de que el CRS coincida
+# Localidades - Transformar a un sistema de coordenadas proyectado para Colombia 
+train_localidades_metros <- st_transform(train_localidades_sf,
+                               crs = 3116)
+print(train_localidades_metros)
+
+# Parques - Transformar a un sistema de coordenadas proyectado para Colombia 
+train_mall_metros <- st_transform(mall_sf_bogota,
+                               crs = 3116)
+print(train_mall_metros)
 
 # Calcular las distancias entre los apartamentos y los parques
-dist_matrix_parques <- st_distance(train_localidades_sf, parques_sf)
+dist_matrix_mall <- st_distance(train_localidades_metros, train_mall_metros)
 
 # Calcular la distancia mínima a un parque para cada apartamento
-dist_min_parque <- apply(dist_matrix_parques, 1, min)
+dist_min_mall <- apply(dist_matrix_mall, 1, min)
 
 # Agregar la distancia mínima a la base de datos train_localidades
-train_localidades$distancia_parque <- dist_min_parque
+train_localidades_metros$distancia_mall <- as.numeric(dist_min_mall)
+
+# Agregar la distancia mínima a la base de datos
+train_localidades <- train_localidades %>%
+  mutate(distancia_mall = dist_min_mall)
+
+# Revisar resultados
+head(train_localidades)
 
 
 ```
@@ -406,62 +399,56 @@ Visualizar gráfico
 ```{r}
 
 # Crear histograma
-p2 <- ggplot(train_localidades, aes(x = distancia_parque)) +
+p2 <- ggplot(train_localidades, aes(x = distancia_mall)) +
   geom_histogram(bins = 50, fill = "darkgreen", alpha = 0.5) +
-  labs(x = "Distancia mínima a un parque (m)", y = "Cantidad",
-       title = "Distribución de distancia a parques - resto de Bogotá") +
+  labs(x = "Distancia mínima hasta el Mall(m)", y = "Cantidad",
+       title = "Distribución de distancia a Mall - resto de Bogotá") +
   theme_bw()
 
-ggsave("../04_Views/GRAFICO8B-DISTANCIAPARQUES_RESTO.png", plot = p2, dpi = 150, width = 8, height = 6)
+ggsave("../04_Views/GRAFICO8B-DISTANCIAMALL_RESTO.png", plot = p2, dpi = 150, width = 8, height = 6)
 
 ```
 
 2)  Identificar distancia a CAI
 
 ```{r}
-# Obtener los límites de Bogotá
-limites_bogota <- getbb("Bogotá, Colombia")
 
 # Obtener los CAIs (estaciones de policía) en Bogotá desde OSM
-cai_query_bogota <- opq(bbox = limites_bogota) %>%
+cai_bogota <- opq(bbox = limites_bogota) %>%
   add_osm_feature(key = "amenity", value = "police")
 
-# Descargar datos de CAIs
-cai_data_bogota <- osmdata_sf(cai_query_bogota)
-
-# Extraer los puntos de los CAIs en Bogotá como un objeto sf
+# Descargar datos de Cai
+cai_data_bogota <- osmdata_sf(cai_bogota)
+# Extraer los puntos de los parques en Bogotá como un objeto sf
 cai_sf_bogota <- cai_data_bogota$osm_points %>%
   dplyr::select(osm_id, name) %>%
   st_transform(crs = 4326)  # Asegurarse de que el CRS coincida con el de los apartamentos
+# Revisar los datos de los parques
 
-# Revisar los datos de los CAIs
 head(cai_sf_bogota)
-
-
-```
-
-Calcular distancia mínima a un CAI
-
-```{r}
-# Convertir train_localidades a objeto sf directamente
-train_localidades <- st_as_sf(train_localidades, coords = c("lon", "lat"), crs = 4326)
-
-# Calcular las distancias entre los apartamentos fuera de Chapinero y los CAIs
-dist_matrix_cai <- st_distance(train_localidades, cai_sf_bogota)
-
-# Calcular la distancia mínima de cada apartamento a un CAI
+#¡¡¡IMPORTANTE!!!!
+#(MAGNA-SIRGAS / Colombia Bogota)
+# Localidades - Transformar a un sistema de coordenadas proyectado para Colombia 
+train_localidades_metros <- st_transform(train_localidades_sf,
+                               crs = 3116)
+print(train_localidades_metros)
+# Parques - Transformar a un sistema de coordenadas proyectado para Colombia 
+train_cai_metros <- st_transform(cai_sf_bogota,
+                               crs = 3116)
+print(train_cai_metros)
+# Calcular las distancias entre los apartamentos y los parques
+dist_matrix_cai <- st_distance(train_localidades_metros, train_cai_metros)
+# Calcular la distancia mínima a un parque para cada apartamento
 dist_min_cai <- apply(dist_matrix_cai, 1, min)
-
+# Agregar la distancia mínima a la base de datos train_localidades
+train_localidades_metros$distancia_cai <- as.numeric(dist_min_cai)
 # Agregar la distancia mínima a la base de datos
 train_localidades <- train_localidades %>%
   mutate(distancia_cai = dist_min_cai)
-
 # Revisar resultados
 head(train_localidades)
 
-
 ```
-
 Gráfico de distancia a los CAIS
 
 ```{r}
@@ -475,7 +462,6 @@ ggplot(train_localidades, aes(x = distancia_cai)) +
 # Guardar el gráfico
 ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, height = 6)
 ```
-
 3)  Identificar distancia hasta los paraderos de buses
 
 ```{r}
@@ -656,8 +642,8 @@ test_buffer_aptos <- st_buffer(test_chapinero_sf, dist = 500)
 test_bbox_buffer <- st_bbox(test_buffer_aptos)
 
 # Consulta a OSM para parques dentro del área del buffer
-test_parques <- opq(bbox = test_bbox_buffer) %>%
-  add_osm_feature(key = "leisure", value = "park")
+test_mall <- opq(bbox = test_bbox_buffer) %>%
+  add_osm_feature(key = "shop", value = "mall")
 
 # Descargar los datos de parques de la consulta
 test_parques_data <- osmdata_sf(test_parques)
