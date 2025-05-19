@@ -631,25 +631,25 @@ test_aptos <- test_aptos %>%
   mutate(lon = as.numeric(lon), lat = as.numeric(lat))
 
 # Obtener límites de Chapinero
-limite_chapinero <- getbb("Chapinero, Bogotá, Colombia")
+limite_test <- getbb("Bogotá, Colombia") #Cambio
 
 # Filtrar SOLO los que están dentro de Chapinero
-test_chapinero <- test_aptos %>%
+test_aptos <- test_aptos %>% #Cambio
   filter(
-    between(lon, limite_chapinero[1, "min"], limite_chapinero[1, "max"]) & 
-    between(lat, limite_chapinero[2, "min"], limite_chapinero[2, "max"])
+    between(lon, limite_test[1, "min"], limite_test[1, "max"]) & #Cambio
+    between(lat, limite_test[2, "min"], limite_test[2, "max"]) #Cambio
   )
 
 # Crear objeto sf (opcional, si vas a usarlo como spatial)
-test_chapinero_sf <- st_as_sf(test_chapinero, 
+test_aptos_sf <- st_as_sf(test_aptos, #Cambio
                               coords = c("lon", "lat"), 
                               crs = 4326)
 
 # Visualizar en el mapa
 leaflet() %>%
   addTiles() %>%
-  addCircles(lng = test_chapinero$lon, 
-             lat = test_chapinero$lat)
+  addCircles(lng = test_aptos$lon, #Cambio
+             lat = test_aptos$lat) #Cambio
 
 
 ```
@@ -657,32 +657,33 @@ leaflet() %>%
 1)  Distancia a centros comerciales
 
 ```{r}
-# Asegúrate de que test_chapinero_sf esté definido
-test_chapinero_sf <- st_as_sf(test_chapinero,
+
+# Transformar test_chapinero a objeto sf si aún no está
+test_aptos_sf <- st_as_sf(test_aptos,
                               coords = c("lon", "lat"),
                               crs = 4326)
 
 # Transformar a sistema proyectado colombiano (MAGNA-SIRGAS)
-test_chapinero_metros <- st_transform(test_chapinero_sf, crs = 3116)
+test_aptos_metros <- st_transform(test_aptos_sf, crs = 3116)
 
 # Transformar también los malls si no lo has hecho aún (puedes omitir si ya existe)
 mall_sf_bogota_metros <- st_transform(mall_sf_bogota, crs = 3116)
 
 # Calcular matriz de distancias
-dist_matrix_mall_test <- st_distance(test_chapinero_metros, mall_sf_bogota_metros)
+dist_matrix_mall_test <- st_distance(test_aptos_metros, mall_sf_bogota_metros)
 
 # Calcular la distancia mínima a un mall para cada apartamento en test
 dist_min_mall_test <- apply(dist_matrix_mall_test, 1, min)
 
 # Agregar la distancia mínima a la base de datos test_chapinero
-test_chapinero_metros$distancia_mall <- as.numeric(dist_min_mall_test)
+test_aptos_metros$distancia_mall <- as.numeric(dist_min_mall_test)
 
 # Agregar también la distancia como columna simple (opcional, para df sin geometría)
-test_chapinero <- test_chapinero %>%
+test_aptos <- test_aptos %>%
   mutate(distancia_mall = dist_min_mall_test)
 
 # Revisar resultados
-head(test_chapinero)
+head(test_aptos)
 
 
 ```
@@ -691,31 +692,31 @@ head(test_chapinero)
 
 ```{r}
 # Transformar test_chapinero a objeto sf si aún no está
-test_chapinero_sf <- st_as_sf(test_chapinero,
+test_aptos_sf <- st_as_sf(test_aptos,
                               coords = c("lon", "lat"),
                               crs = 4326)
 
 # Transformar a sistema de coordenadas proyectado (MAGNA-SIRGAS)
-test_chapinero_metros <- st_transform(test_chapinero_sf, crs = 3116)
+test_aptos_metros <- st_transform(test_aptos_sf, crs = 3116)
 
 # Transformar los CAIs a CRS 3116 si no lo hiciste antes
 cai_sf_bogota_metros <- st_transform(cai_sf_bogota, crs = 3116)
 
 # Calcular la matriz de distancias
-dist_matrix_cai_test <- st_distance(test_chapinero_metros, cai_sf_bogota_metros)
+dist_matrix_cai_test <- st_distance(test_aptos_metros, cai_sf_bogota_metros)
 
 # Calcular la distancia mínima al CAI más cercano para cada apartamento
 dist_min_cai_test <- apply(dist_matrix_cai_test, 1, min)
 
 # Agregar la distancia mínima como nueva columna
-test_chapinero_metros$distancia_cai <- as.numeric(dist_min_cai_test)
+test_aptos_metros$distancia_cai <- as.numeric(dist_min_cai_test)
 
 # Agregar la distancia también al data frame base (sin geometría)
-test_chapinero <- test_chapinero %>%
+test_aptos <- test_aptos %>%
   mutate(distancia_cai = dist_min_cai_test)
 
 # Verificar
-head(test_chapinero)
+head(test_aptos)
 
 
 ```
@@ -724,31 +725,31 @@ head(test_chapinero)
 
 ```{r}
 # Asegúrate de tener test_chapinero_sf como objeto sf
-test_chapinero_sf <- st_as_sf(test_chapinero,
+test_aptos_sf <- st_as_sf(test_aptos,
                               coords = c("lon", "lat"),
                               crs = 4326)
 
 # Transformar a sistema de coordenadas proyectado (MAGNA-SIRGAS / Bogotá)
-test_chapinero_metros <- st_transform(test_chapinero_sf, crs = 3116)
+test_aptos_metros <- st_transform(test_aptos_sf, crs = 3116)
 
 # Asegúrate de tener las paradas de bus transformadas a CRS 3116
 bus_stop_metros <- st_transform(bus_stop_sf, crs = 3116)
 
 # Calcular la matriz de distancias entre apartamentos y paradas de bus
-dist_matrix_bus_test <- st_distance(test_chapinero_metros, bus_stop_metros)
+dist_matrix_bus_test <- st_distance(test_aptos_metros, bus_stop_metros)
 
 # Calcular la distancia mínima a una parada de bus
 dist_min_bus_test <- apply(dist_matrix_bus_test, 1, min)
 
 # Agregar la distancia mínima a test_chapinero_metros
-test_chapinero_metros$distancia_bus <- as.numeric(dist_min_bus_test)
+test_aptos_metros$distancia_bus <- as.numeric(dist_min_bus_test)
 
 # Agregar la distancia a la versión sin geometría
-test_chapinero <- test_chapinero %>%
+test_aptos <- test_aptos %>%
   mutate(distancia_bus = dist_min_bus_test)
 
 # Verificar
-head(test_chapinero)
+head(test_aptos)
 
 ```
 
@@ -756,31 +757,31 @@ head(test_chapinero)
 
 ```{r}
 # Asegúrate de que test_chapinero_sf tenga geometría (EPSG:4326)
-test_chapinero_sf <- st_as_sf(test_chapinero,
+test_aptos_sf <- st_as_sf(test_aptos,
                               coords = c("lon", "lat"),
                               crs = 4326)
 
 # 1. Transformar los datos al sistema de coordenadas proyectado (MAGNA-SIRGAS)
-test_chapinero_metros <- st_transform(test_chapinero_sf, crs = 3116)
+test_aptos_metros <- st_transform(test_aptos_sf, crs = 3116)
 
 # 2. Asegúrate de tener avenidas_metros definido previamente
 # (Ya creado en tu código anterior como st_transform(avenidas_sf, crs = 3116))
 
 # 3. Calcular la matriz de distancias entre apartamentos y avenidas principales
-dist_matrix_avenidas_test <- st_distance(test_chapinero_metros, avenidas_metros)
+dist_matrix_avenidas_test <- st_distance(test_aptos_metros, avenidas_metros)
 
 # 4. Calcular la distancia mínima a una avenida
 dist_min_avenida_test <- apply(dist_matrix_avenidas_test, 1, min)
 
 # 5. Agregar la distancia mínima a test_chapinero_metros
-test_chapinero_metros$distancia_avenida <- as.numeric(dist_min_avenida_test)
+test_aptos_metros$distancia_avenida <- as.numeric(dist_min_avenida_test)
 
 # 6. Agregar también a la base de datos test_chapinero sin geometría
-test_chapinero <- test_chapinero %>%
+test_aptos <- test_aptos %>%
   mutate(distancia_avenida = dist_min_avenida_test)
 
 # 7. Verificar resultados
-head(test_chapinero)
+head(test_aptos)
 
 ```
 
@@ -791,12 +792,12 @@ library(tidytext)
 library(dplyr)
 
 # Tokenización de la columna 'description'
-test_chapinero_tokens <- test_chapinero %>%
+test_aptos_tokens <- test_aptos %>%
   unnest_tokens(word, description)
 
 # Quitar stop words
 data("stop_words")
-test_chapinero_tokens_clean <- test_chapinero_tokens %>%
+test_aptos_tokens_clean <- test_aptos_tokens %>%
   anti_join(stop_words)
 
 ```
@@ -804,7 +805,7 @@ test_chapinero_tokens_clean <- test_chapinero_tokens %>%
 Palabras más comunes
 
 ```{r}
-test_chapinero_tokens_clean %>%
+test_aptos_tokens_clean %>%
   count(word, sort = TRUE)
 ```
 
@@ -822,7 +823,7 @@ laundry <- "lavanderia"
 elevator <- "ascensor"
 
 #Variable dummy para cada caracteristica
-dummies_df_test <- test_chapinero_tokens_clean %>%
+dummies_df_test <- test_aptos_tokens_clean %>%
   mutate(binaria_parking = word %in% parking,
          binaria_terrace = word %in% terrace,
          binaria_gym = word %in% gym,
@@ -832,7 +833,7 @@ dummies_df_test <- test_chapinero_tokens_clean %>%
   summarise(across(starts_with("binaria_"), ~as.integer(any(.))))
 
 # Unir a df 
-test_chapinero <- left_join(test_chapinero, dummies_df_test, by = "property_id")
+test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
 
 ## 1.4 Convertir a factores base entrenamiento
@@ -907,7 +908,7 @@ cols_factor <- c(
 )
 
 # Preprocesamiento test
-test <- test_chapinero %>%
+test <- test_aptos %>%
   select(
     property_id,
     year,
