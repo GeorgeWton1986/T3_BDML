@@ -880,7 +880,6 @@ variables_predictoras <- c(
   'distancia_mall',
   'distancia_bus',
   'distancia_avenida',
-  'precio_mt2',
   'binaria_parking',
   'binaria_terrace',
   'binaria_gym',
@@ -1163,15 +1162,17 @@ write.csv(pred_CARTS3,
 ### 2.3.1 Entrenamiento
 
 ```{r}
+# Control de entrenamiento con out-of-bag (OOB)
 fitControl <- trainControl(method = "oob")
 
+# Grid de hiperparámetros
 tree_grid <- expand.grid(
   mtry = 5,
-  splitrule = "variance",
+  splitrule = "variance",       # para regresión
   min.node.size = c(2, 3, 4)
 )
 
-# Entrenar el modelo con toda la base
+# Entrenar el modelo
 model_forest <- train(
   formula_modelo,
   data = train_factors,
@@ -1182,34 +1183,51 @@ model_forest <- train(
   importance = "permutation"
 )
 
-# Ver el mejor modelo y métricas OOB
+# Resultados del modelo
 print(model_forest)
 
 # Importancia de variables
 varImp(model_forest)
+
 ```
 
 ### 2.3.2 Predicción
 
 ```{r}
+# Alinear niveles de factores
+for (var in cols_factor) {
+  levels(test[[var]]) <- levels(train_factors[[var]])
+}
+
+# Predicción
+pred <- predict(model_forest, newdata = test)
+
+# Resultado final
+pred_RF1 <- test %>%
+  mutate(price = pred) %>%
+  select(property_id, price)
 
 ```
+
+```{r}
+# Predicciones en entrenamiento
+pred_train <- predict(model_forest, newdata = train_factors)
+
+# Calcular MAE en entrenamiento
+MAE_train <- mean(abs(train_factors$price - pred_train))
+print(MAE_train)
+
+```
+
 
 ### 2.3.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(pred_RF1,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_RF2,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_RF3,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST3.csv", row.names = FALSE, 
-          quote = FALSE)
 ```
 
 ## 2.4 Boosting
