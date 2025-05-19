@@ -15,6 +15,7 @@ library(pacman)
 
 if (!require("MLmetrics")) install.packages("MLmetrics")
 library(MLmetrics)
+install.packages("recipes")
 
 # Usar pacman para cargar (e instalar si es necesario) los paquetes
 p_load(tidyverse,   # Manipulación y visualización de datos 
@@ -42,7 +43,8 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        geosphere,   # Calcular distancias geográficas como Haversine
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        spatialsample, # Muestreo espacial
-       vip
+       vip,
+       recipes
        )
 ```
 
@@ -1219,7 +1221,6 @@ print(MAE_train)
 
 ```
 
-
 ### 2.3.3 Template Kaggle
 
 ```{r}
@@ -1229,6 +1230,85 @@ write.csv(pred_RF1,
           quote = FALSE)
 
 ```
+
+### 2.3.2 Entrenamiento
+
+```{r}
+set.seed(123)  # Para reproducibilidad
+
+# 1. Crear bloques espaciales para validación cruzada (5 folds)
+block_folds_rf <- spatial_block_cv(
+  train_espacial,
+  v = 5,
+  id = "spatial_cv"   # opcional, para identificar los folds
+)
+
+# 2. Preparar la receta
+receta_rf <- recipe(price ~ ., data = train_espacial) %>%
+  update_role(property_id, new_role = "ID") %>%    # property_id solo como ID
+  step_rm(geometry) %>%                            # eliminar columna geometry antes del modelo
+  step_dummy(all_nominal_predictors()) %>%        # dummies para categóricas
+  step_zv(all_predictors())                        # quitar variables sin variación
+
+# 3. Definir el modelo Random Forest con parámetros para tunear
+modelo_rf <- rand_forest(
+  mtry = tune(),        # número de variables a probar en cada split
+  trees = 1000,         # más árboles para estabilidad
+  min_n = tune()        # tamaño mínimo de nodo
+) %>%
+  set_engine("ranger", importance = "permutation") %>%  # importancia para análisis posterior
+  set_mode("regression")
+
+# 4. Armar workflow combinando receta y modelo
+workflow_rf <- workflow() %>%
+  add_recipe(receta_rf) %>%
+  add_model(modelo_rf)
+
+# 5. Crear grid de hiperparámetros para búsqueda
+grid_rf <- grid_regular(
+  mtry(range = c(2, floor(sqrt(ncol(train_espacial) - 2)))),  # rango dinámico mtry
+  min_n(range = c(5, 20)),                                    # valores más realistas para min_n
+  levels = 5
+)
+
+# 6. Ejecutar tuning con validación cruzada espacial
+resultados_rf <- tune_grid(
+  workflow_rf,
+  resamples = block_folds_rf,
+  grid = grid_rf,
+  metrics = metric_set(rmse, rsq, mae),   # métricas regresión
+  control = control_grid(save_pred = TRUE, verbose = TRUE)
+)
+
+# 7. Revisar resultados y seleccionar mejores hiperparámetros (menor RMSE)
+mejores_params <- select_best(resultados_rf, metric = "rmse")
+
+# 8. Finalizar workflow con mejores parámetros y entrenar modelo final
+final_workflow_rf <- finalize_workflow(workflow_rf, mejores_params)
+
+final_model_rf <- fit(final_workflow_rf, data = train_espacial)
+
+# 9. Importancia de variables (opcional)
+importancia <- final_model_rf %>%
+  extract_fit_parsnip() %>%
+  vip::vip(geom = "col")
+```
+```{r}
+
+# 12. Predecir sobre conjunto de test (supongamos que tienes test_espacial)
+predicciones_rf <- predict(final_model_rf, new_data = test_espacial)
+
+# 13. Agregar predicciones al test
+resultados_pred_rf <- test_espacial %>%
+  select(property_id) %>%
+  bind_cols(predicciones_rf) %>%
+  rename(predicted_price = .pred)
+
+head(resultados_pred_rf)
+```
+
+
+
 
 ## 2.4 Boosting
 
