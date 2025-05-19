@@ -255,8 +255,7 @@ leaflet() %>%
              lat = train_aptos$lat)
 ```
 
-Carga de datos espaciales
-Identificar localidades sin Chapinero
+Carga de datos espaciales Identificar localidades sin Chapinero
 
 ```{r}
 # Columas númericas
@@ -455,6 +454,7 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 
 ```
+
 Gráfico de distancia a los CAIS
 
 ```{r}
@@ -468,6 +468,7 @@ ggplot(train_localidades, aes(x = distancia_cai)) +
 # Guardar el gráfico
 ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, height = 6)
 ```
+
 3)  Identificar distancia hasta los paraderos de buses
 
 ```{r}
@@ -504,7 +505,6 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 
 ```
-
 
 Visualizar gráfico
 
@@ -576,7 +576,6 @@ if(!inherits(train_localidades, "sf")) {
 print(st_crs(train_localidades_sf))
 ```
 
-
 Visualizar gráfico
 
 ```{r}
@@ -626,7 +625,8 @@ test_aptos <- test_aptos  %>%
 skim(test_aptos)
 ```
 
-Seleccionar las viviendas de la localidad de Chapinero para Test 
+Seleccionar las viviendas de la localidad de Chapinero para Test
+
 ```{r}
 # Asegurarte de que lon y lat sean numéricos
 test_aptos <- test_aptos %>%
@@ -690,7 +690,7 @@ head(test_aptos)
 
 ```
 
-2) Distancia a CAI
+2)  Distancia a CAI
 
 ```{r}
 # Transformar test_chapinero a objeto sf si aún no está
@@ -839,6 +839,7 @@ test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
 
 ## 1.4 Convertir a factores base entrenamiento
+
 ```{r}
 # Variables categóricas a convertir en factor
 cols_factor <- c(
@@ -896,6 +897,7 @@ formula_modelo <- as.formula(paste("price ~", variables))
 ```
 
 Convertir a factores base test
+
 ```{r}
 # Las columnas estén en el mismo formato que en entrenamiento
 cols_factor <- c(
@@ -1293,6 +1295,7 @@ importancia <- final_model_rf %>%
   extract_fit_parsnip() %>%
   vip::vip(geom = "col")
 ```
+
 ```{r}
 
 # 12. Predecir sobre conjunto de test (supongamos que tienes test_espacial)
@@ -1306,9 +1309,6 @@ resultados_pred_rf <- test_espacial %>%
 
 head(resultados_pred_rf)
 ```
-
-
-
 
 ## 2.4 Boosting
 
@@ -1380,6 +1380,455 @@ write.csv(pred_rneuronales3,
 
 ## 2.7 Regresión lineal
 
+Ajuste de base de datos train y test
+
 ```{r}
+# Train
+# Variables categóricas a convertir en factor
+cols_factor_lm <- c(
+  'property_type',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+
+# Filtrar y preparar datos
+train_factors_lm <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Quitar NAs del dataframe preparado
+train_factors_lm <- na.omit(train_factors_lm) ## Esta es la base que se usará para el entrenamiento
+
+
+# Test
+# Conservar test con `price` para evaluación posterior
+test_lm_input <- test_aptos %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
 
 ```
+
+### 2.5.1 Entrenamiento
+
+Modelo 1: todas la variables sin niguna consideración especial
+
+```{r}
+# Variables predictoras
+pred_var_lm <- c(
+  'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+# Definir fórmula del modelo de regresión lineal
+variables_lm <- paste(pred_var_lm, collapse = " + ")
+formula_lm <- as.formula(paste("price ~", variables_lm))
+
+# Modelos
+
+modelo_lm1 <- lm(formula_lm, data = train_factors_lm)
+summary(modelo_lm1)
+
+modelo_lm2 <- lm(price ~ year + rooms + bathrooms  + surface_covered + property_type  + distancia_mall + distancia_bus + distancia_avenida + binaria_parking + binaria_gym  + binaria_elevator, data = train_factors_lm)
+summary(modelo_lm2)
+
+
+library(vip)
+vip(modelo_lm1, num_features = 20)
+vip(modelo_lm2, num_features = 20)
+
+modelo_lm3 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator +rooms, data = train_factors_lm)
+summary(modelo_lm3)
+
+```
+
+Modelo con precio como log
+
+```{r}
+# Convertir el precio en log
+train_factors_lm_log <- train_factors_lm %>%
+  mutate(log_price = log(price)) %>%  # ← primero calculamos log_price
+  select(
+    property_id,
+    price,
+    log_price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Formula para log
+formula_log <- as.formula(paste("log_price ~", variables_lm))
+
+# Modelos log lin
+
+modelo_log1 <- lm(formula_log, data = train_factors_lm_log)
+summary(modelo_log1)
+
+modelo_log2 <- lm(log_price ~ year + rooms + bathrooms  + surface_covered  + distancia_mall + distancia_bus + distancia_avenida + binaria_parking + binaria_gym  + binaria_elevator, data = train_factors_lm_log)
+summary(modelo_log2)
+
+```
+
+
+### 2.5.2 Predicción
+
+Modelo 1: 
+
+```{r}
+# Predicción
+pred_lm1 <- predict(modelo_lm1, newdata = test_lm_input)
+
+resultado_lm1 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_lm1, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_lm1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred1 <- sd(resultado_lm1$price) / mean(resultado_lm1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred1, 2)))
+
+# Análisis por segmento
+seg_lm1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm1)
+
+# Outliers en predicciones
+umbral_superior_lm1 <- quantile(resultado_lm1$price, 0.975)
+umbral_inferior_lm1 <- quantile(resultado_lm1$price, 0.025)
+
+outliers_lm1 <- resultado_lm1 %>%
+  filter(price > umbral_superior_lm1 | price < umbral_inferior_lm1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm1)))
+
+
+```
+
+Modelo 2:
+
+```{r}
+# Predicción
+pred_lm2 <- predict(modelo_lm2, newdata = test_lm_input)
+
+resultado_lm2 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_lm2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_lm2$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred2 <- sd(resultado_lm2$price) / mean(resultado_lm2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred2, 2)))
+
+# Análisis por segmento
+seg_lm2 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm2)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm2)
+
+# Outliers en predicciones
+umbral_superior_lm2 <- quantile(resultado_lm2$price, 0.975)
+umbral_inferior_lm2 <- quantile(resultado_lm2$price, 0.025)
+
+outliers_lm2 <- resultado_lm2 %>%
+  filter(price > umbral_superior_lm2 | price < umbral_inferior_lm2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm2)))
+
+```
+
+Modeolo 3:
+
+```{r}
+# Predicción
+pred_lm3 <- predict(modelo_lm3, newdata = test_lm_input)
+
+resultado_lm3 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm3))
+
+# Ver la distribución de las predicciones
+graf_pred_lm3 <- ggplot(resultado_lm3, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio Reg Lin",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+
+# Guardar la gráfica
+ggsave("../04_Views/GRAFICO-DISTRIBUCION-PRED-REGLIN-M3.png", plot = graf_pred_lm3,
+       dpi = 150, width = 8, height = 6)
+
+# Estadísticas generales de las predicciones
+summary(resultado_lm3$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred3 <- sd(resultado_lm3$price) / mean(resultado_lm3$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred3, 2)))
+
+# Análisis por segmento
+seg_lm3 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm3)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm3)
+
+# Outliers en predicciones
+umbral_superior_lm3 <- quantile(resultado_lm3$price, 0.975)
+umbral_inferior_lm3 <- quantile(resultado_lm3$price, 0.025)
+
+outliers_lm3 <- resultado_lm3 %>%
+  filter(price > umbral_superior_lm3 | price < umbral_inferior_lm3)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm3)))
+```
+
+
+Modelos log lin:
+
+```{r}
+pred_log1 <- predict(modelo_log1, newdata = test_lm_input)
+pred_log1 <- exp(pred_log1)
+
+resultado_log1 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_log1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_log1, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_log1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_log1 <- sd(resultado_log1$price) / mean(resultado_log1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log1, 2)))
+
+# Análisis por segmento
+seg_log1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_log1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_log1)
+
+# Outliers en predicciones
+umbral_superior_log1<- quantile(resultado_log1$price, 0.975)
+umbral_inferior_log1 <- quantile(resultado_log1$price, 0.025)
+
+outliers_log1 <- resultado_log1 %>%
+  filter(price > umbral_superior_log1 | price < umbral_inferior_log1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_log1)))
+```
+
+```{r}
+pred_log2 <- predict(modelo_log2, newdata = test_lm_input)
+pred_log2 <- exp(pred_log2)
+
+resultado_log2 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_log2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_log2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_log1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_log1 <- sd(resultado_log1$price) / mean(resultado_log1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log1, 2)))
+
+# Análisis por segmento
+seg_log1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_log1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_log1)
+
+# Outliers en predicciones
+umbral_superior_log1<- quantile(resultado_log1$price, 0.975)
+umbral_inferior_log1 <- quantile(resultado_log1$price, 0.025)
+
+outliers_log1 <- resultado_log1 %>%
+  filter(price > umbral_superior_log1 | price < umbral_inferior_log1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_log1)))
+```
+
+
+### 2.5.3 Template Kaggle
+
+```{r}
+# Descargar archivo
+write.csv(resultado_lm3,
+          "../03_Stores/18-05_G4_RegLin1.csv", row.names = FALSE, 
+          quote = FALSE)
+
+```
+
+
+
