@@ -1134,10 +1134,33 @@ write.csv(pred_EN_3,
 ## 2.2 CARTs
 
 
+### 2.2.1 Entrenamiento tradicional 
+```{r}
+modelo_cart <- rpart(
+  formula = formula_modelo,
+  data = train_factors,
+  method = "anova"  # Regresión continua
+)
+
+# Visualizar el árbol
+rpart.plot(modelo_cart)
+
+```
+### 2.2.2 Predicción 
+```{r}
+# Predecir
+test$price <- predict(modelo_cart, newdata = test)
+
+# Seleccionar columnas en orden requerido
+pred_CART1 <- test %>%
+  select(property_id, price)
+
+
+```
 
 
 
-### 2.2.1 Entrenamiento
+### 2.2.2 Entrenamiento
 ```{r}
 library(recipes)
 library(parsnip)
@@ -1291,27 +1314,18 @@ mean(results$RMSE)  # RMSE promedio
 ```
 
 
-
 ### 2.2.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
-write.csv(pred_CARTS1,
-          "C:/../03_Stores/10-04_G4_CARTS1.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_CARTS2,
-          "C:/../03_Stores/10-04_G4_CARTS2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_CARTS3,
-          "C:/../03_Stores/10-04_G4_CARTS3.csv", row.names = FALSE, 
+write.csv(pred_CART1,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_CART1.csv", row.names = FALSE, 
           quote = FALSE)
 ```
 
 ## 2.3 Random Forest
 
-### 2.3.1 Entrenamiento
+### 2.3.1 Entrenamiento tradicional
 
 ```{r}
 # Control de entrenamiento con out-of-bag (OOB)
@@ -1371,7 +1385,7 @@ print(MAE_train)
 
 ```
 
-###2.3.2 Entrenamiento 
+###2.3.2 Entrenamiento CV Espacial
 ```{r}
 # 1. Preparar base de entrenamiento sin property_id
 train_1_RF <- train_factors %>%
