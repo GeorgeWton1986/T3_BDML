@@ -15,7 +15,6 @@ library(pacman)
 
 if (!require("MLmetrics")) install.packages("MLmetrics")
 library(MLmetrics)
-install.packages("recipes")
 
 # Usar pacman para cargar (e instalar si es necesario) los paquetes
 p_load(tidyverse,   # Manipulación y visualización de datos 
@@ -43,10 +42,6 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        geosphere,   # Calcular distancias geográficas como Haversine
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        spatialsample, # Muestreo espacial
-       vip,
-       recipes,
-       tidymodels,
-       rsample
        )
 ```
 
@@ -1138,48 +1133,120 @@ write.csv(pred_EN_3,
 
 ## 2.2 CARTs
 
+
+
+
+
 ### 2.2.1 Entrenamiento
+```{r}
+library(recipes)
+library(parsnip)
+library(workflows)
+library(spatialsample)
+library(tune)
+library(yardstick)
+library(ggplot2)
 
-```{r}}
-# Crear validación cruzada espacial (5 folds)
-set.seed(123)
-spatial_folds <- spatial_vfold_cv(train_factors, v = 5, strata = price) 
+# Receta para preparar los datos (sin usar property_id ni geometry)
+receta_cart <- recipe(price ~ ., data = train_espacial) %>%
+  update_role(property_id, new_role = "id") %>%  # property_id no es predictor
+  step_rm(geometry) %>%                          # geometry no es predictor
+  step_dummy(all_nominal_predictors()) %>%      # convertir categóricas a dummies
+  step_zv(all_predictors())                      # eliminar variables con varianza 0
 
-# Crear receta (puedes agregar preprocesos aquí si quieres)
-receta <- recipe(price ~ ., data = train_factors) %>%
-  update_role(lon, lat, new_role = "id")  # para que lon y lat no sean predictoras
+# Modelo CART con parámetros a afinar
+modelo_cart <- decision_tree(
+  cost_complexity = tune(),  # parámetro cp
+  tree_depth = tune()        # profundidad máxima del árbol
+) %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
 
-# Definir modelo CART para regresión
-modelo_cart <- decision_tree(mode = "regression") %>%
-  set_engine("rpart")
-
-# Crear workflow
+# Workflow que junta receta y modelo
 workflow_cart <- workflow() %>%
-  add_model(modelo_cart) %>%
-  add_recipe(receta)
+  add_recipe(receta_cart) %>%
+  add_model(modelo_cart)
+```
 
-# Entrenar con validación cruzada espacial
+```{r}
+library(sf)
+library(dplyr)
+
+# Extraer coordenadas X y Y
+coords <- st_coordinates(train_espacial)
+
+# Definir número de folds (puedes usar 2 para hacerlo más rápido)
 set.seed(123)
-results <- fit_resamples(
-  workflow_cart,
-  resamples = spatial_folds,
-  metrics = metric_set(rmse, mae, rsq),
-  control = control_resamples(save_pred = TRUE)
-)
+k_folds <- 5
+clusters <- kmeans(coords, centers = k_folds, nstart = 25)
 
-# Revisar métricas promedio
-collect_metrics(results)
+# Agregar los clusters como folds al dataset
+train_espacial$fold_id <- clusters$cluster
+
+# Verifica cuántos hay por fold
+table(train_espacial$fold_id)
+
 
 ```
+
+```{r}
+library(rpart)
+
+# Creamos una lista para guardar resultados
+resultados <- list()
+
+# Loop sobre cada fold
+for (i in 1:k_folds) {
+  cat("Fold", i, "\n")
+  
+  # Dividir en entrenamiento y prueba según fold
+  train_fold <- train_espacial %>% filter(fold_id != i)
+  test_fold  <- train_espacial %>% filter(fold_id == i)
+  
+  # Entrenar modelo (aquí ejemplo con CART)
+  modelo <- rpart(price ~ ., data = train_fold %>% st_drop_geometry(), method = "class")
+  
+  # Predecir sobre test fold
+  predicciones <- predict(modelo, newdata = test_fold %>% st_drop_geometry(), type = "class")
+  
+  # Guardar resultados
+  resultados[[i]] <- data.frame(
+    id = test_fold$id,  # Cambia por ID si tienes una variable que lo identifica
+    real = test_fold$price,
+    predicho = predicciones
+  )
+}
+
+# Unir todos los resultados
+resultados_df <- do.call(rbind, resultados)
+
+# Evaluación general
+table(resultados_df$real, resultados_df$predicho)
+
+```
+
+
 
 ### 2.2.2 Predicción
 
 ```{r}
 # 2.1 Generar predicción
-test$pred_CART_cv <- predict(cart_fit, new_data = test) %>% pull(.pred)
+# Preparar los datos de prueba (por ejemplo, test_espacial)
+# IMPORTANTE: Eliminar geometry y tener las mismas variables que en entrenamiento
+test_cart <- test_espacial %>%
+  select(-geometry)  # Quitar geometry
 
-# 2.2 (Opcional) Evaluación si tienes `price` real en test
-# mae(test, truth = price, estimate = pred_CART_cv)
+# Hacer predicción de price
+predicciones <- predict(modelo_final_cart, new_data = test_cart)
+
+# Unir predicciones con los IDs para ver resultados
+resultados_pred <- test_cart %>%
+  select(property_id) %>%
+  bind_cols(predicciones)
+
+# Ver primeras filas
+head(resultados_pred)
+
 
 
 ```
