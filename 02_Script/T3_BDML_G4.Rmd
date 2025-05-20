@@ -1273,7 +1273,7 @@ write.csv(pred_CART1,
           quote = FALSE)
 
 write.csv(pred_CART2,
-          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_CART1.csv", row.names = FALSE, 
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/21-05_G4_CART2.csv", row.names = FALSE, 
           quote = FALSE)
 ```
 
