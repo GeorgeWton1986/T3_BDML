@@ -1154,171 +1154,116 @@ test$price <- predict(modelo_cart, newdata = test)
 # Seleccionar columnas en orden requerido
 pred_CART1 <- test %>%
   select(property_id, price)
+```
 
+```{r}
+# Predecir sobre entrenamiento 
+pred_train <- predict(modelo_cart, newdata = train_factors)
+
+# Calcular MAE
+mae_train <- mean(abs(train_factors$price - pred_train))
+print(paste("MAE en entrenamiento:", round(mae_train, 2)))
 
 ```
 
+```{r}
+# Predecir
+pred_test <- predict(modelo_cart, newdata = test)
 
+# Calcular MAE
+mae_test <- mean(abs(test$price_real - pred_test))  # reemplaza "price_real" por el nombre correcto si difiere
+print(paste("MAE en test:", round(mae_test, 2)))
 
-### 2.2.2 Entrenamiento
+```
+
+### 2.2.2 Entrenamiento Espacial
 ```{r}
 library(recipes)
 library(parsnip)
 library(workflows)
-library(spatialsample)
 library(tune)
-library(yardstick)
-library(ggplot2)
+library(spatialsample)
+library(dplyr)
 
-# Receta para preparar los datos (sin usar property_id ni geometry)
-receta_cart <- recipe(price ~ ., data = train_espacial) %>%
-  update_role(property_id, new_role = "id") %>%  # property_id no es predictor
-  step_rm(geometry) %>%                          # geometry no es predictor
-  step_dummy(all_nominal_predictors()) %>%      # convertir categóricas a dummies
-  step_zv(all_predictors())                      # eliminar variables con varianza 0
+# 1. Receta de preprocesamiento
+receta_CART <- recipe(price ~ ., data = train_1_EN) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
 
-# Modelo CART con parámetros a afinar
-modelo_cart <- decision_tree(
-  cost_complexity = tune(),  # parámetro cp
-  tree_depth = tune()        # profundidad máxima del árbol
+# 2. Definir modelo CART con parámetros a tunear
+modelo_CART <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
 ) %>%
   set_engine("rpart") %>%
   set_mode("regression")
 
-# Workflow que junta receta y modelo
-workflow_cart <- workflow() %>%
-  add_recipe(receta_cart) %>%
-  add_model(modelo_cart)
-```
+# 3. Grid de búsqueda para hiperparámetros
+grid_CART <- grid_regular(
+  cost_complexity(range = c(-4, -1), trans = log10_trans()),
+  tree_depth(range = c(3, 10)),
+  min_n(range = c(2, 10)),
+  levels = c(4, 4, 4)
+)
 
-```{r}
-library(sf)
-library(dplyr)
+# 4. Workflow
+workflow_CART <- workflow() %>%
+  add_recipe(receta_CART) %>%
+  add_model(modelo_CART)
 
-# Extraer coordenadas X y Y
-coords <- st_coordinates(train_espacial)
+# 5. Validación cruzada espacial con 2 folds
+block_folds_CART <- spatial_block_cv(train_espacial, v = 2)
 
-# Definir número de folds (puedes usar 2 para hacerlo más rápido)
-set.seed(123)
-k_folds <- 5
-clusters <- kmeans(coords, centers = k_folds, nstart = 25)
-
-# Agregar los clusters como folds al dataset
-train_espacial$fold_id <- clusters$cluster
-
-# Verifica cuántos hay por fold
-table(train_espacial$fold_id)
-
-
-```
-
-```{r}
-library(rpart)
-
-# Creamos una lista para guardar resultados
-resultados <- list()
-
-# Loop sobre cada fold
-for (i in 1:k_folds) {
-  cat("Fold", i, "\n")
-  
-  # Dividir en entrenamiento y prueba según fold
-  train_fold <- train_espacial %>% filter(fold_id != i)
-  test_fold  <- train_espacial %>% filter(fold_id == i)
-  
-  # Entrenar modelo (aquí ejemplo con CART)
-  modelo <- rpart(price ~ ., data = train_fold %>% st_drop_geometry(), method = "class")
-  
-  # Predecir sobre test fold
-  predicciones <- predict(modelo, newdata = test_fold %>% st_drop_geometry(), type = "class")
-  
-  # Guardar resultados
-  resultados[[i]] <- data.frame(
-    id = test_fold$id,  # Cambia por ID si tienes una variable que lo identifica
-    real = test_fold$price,
-    predicho = predicciones
+# 6. Búsqueda de hiperparámetros con validación cruzada espacial
+resultados_CART <- workflow_CART %>%
+  tune_grid(
+    resamples = block_folds_CART,
+    grid = grid_CART,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
   )
-}
 
-# Unir todos los resultados
-resultados_df <- do.call(rbind, resultados)
+# 7. Resultados y mejores parámetros
+show_best(resultados_CART, metric = "mae", n = 5)
 
-# Evaluación general
-table(resultados_df$real, resultados_df$predicho)
+mejores_CART <- select_best(resultados_CART, metric = "mae")
+print(mejores_CART)
+
+# 8. Finalizar workflow con mejores parámetros
+final_workflow_CART <- finalize_workflow(workflow_CART, mejores_CART)
+
+# 9. Ajustar modelo final con todos los datos de entrenamiento
+modelo_final_CART <- fit(final_workflow_CART, data = train_1_EN)
 
 ```
-
-
 
 ### 2.2.2 Predicción
 
 ```{r}
-# 2.1 Generar predicción
-# Preparar los datos de prueba (por ejemplo, test_espacial)
-# IMPORTANTE: Eliminar geometry y tener las mismas variables que en entrenamiento
-test_cart <- test_espacial %>%
-  select(-geometry)  # Quitar geometry
 
-# Hacer predicción de price
-predicciones <- predict(modelo_final_cart, new_data = test_cart)
+# Realizar predicciones con el modelo final
+predicciones_CART <- predict(modelo_final_CART, new_data = test_EN)
 
-# Unir predicciones con los IDs para ver resultados
-resultados_pred <- test_cart %>%
+# Combinar property_id con las predicciones
+pred_CART2 <- test_EN %>%
   select(property_id) %>%
-  bind_cols(predicciones)
+  bind_cols(predicciones_CART) %>%
+  rename(price = .pred)
 
-# Ver primeras filas
-head(resultados_pred)
-
-
+head(resultado_CART)
 
 ```
-###2.2.2 Entrenamiento
-```{r}
- install.packages("spatialEco")
-library(spatialEco)
-library(rsample)
-
-install.packages("blockCV") 
-library(blockCV)
-library(sf)   # para manejar datos espaciales
-
-# Crear folds espaciales (5 folds)
-folds_spatial <- spatialEco::spatialBlock(train_factors, 
-                                          x = "lot", y = "lan", 
-                                          theRange = 0.01, # distancia del bloque, ajusta según escala
-                                          k = 5, 
-                                          selection = "random")
-
-# Esto agrega a train_factors una columna fold con número de fold
-train_factors$fold <- folds_spatial$foldID
-
-# Entrenar y evaluar por folds:
-library(dplyr)
-library(purrr)
-
-results <- map_df(1:5, function(k){
-  train_fold <- filter(train_factors, fold != k)
-  val_fold <- filter(train_factors, fold == k)
-  
-  mod <- rpart(formula_modelo, data = train_fold, method = "anova")
-  pred_val <- predict(mod, newdata = val_fold)
-  
-  data.frame(fold = k,
-             RMSE = sqrt(mean((val_fold$price - pred_val)^2)))
-})
-
-print(results)
-mean(results$RMSE)  # RMSE promedio
-
-```
-
 
 ### 2.2.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(pred_CART1,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_CART1.csv", row.names = FALSE, 
+          quote = FALSE)
+
+write.csv(pred_CART2,
           "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_CART1.csv", row.names = FALSE, 
           quote = FALSE)
 ```
