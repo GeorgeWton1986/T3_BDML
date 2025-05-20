@@ -1442,20 +1442,6 @@ write.csv(resultados_2_RF,
 ```
 
 
-```{r}
-
-# 12. Predecir sobre conjunto de test (supongamos que tienes test_espacial)
-predicciones_rf <- predict(final_model_rf, new_data = test_espacial)
-
-# 13. Agregar predicciones al test
-resultados_pred_rf <- test_espacial %>%
-  select(property_id) %>%
-  bind_cols(predicciones_rf) %>%
-  rename(predicted_price = .pred)
-
-head(resultados_pred_rf)
-```
-
 ## 2.4 Boosting
 
 ### 2.4.1 Entrenamiento CV tradicional
