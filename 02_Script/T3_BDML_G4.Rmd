@@ -1371,10 +1371,102 @@ print(MAE_train)
 
 ```
 
+###2.3.2 Entrenamiento 
+```{r}
+# 1. Preparar base de entrenamiento sin property_id
+train_1_RF <- train_factors %>%
+  select(-property_id)
+
+# 2. Crear receta
+library(recipes)
+receta_1_RF <- recipe(price ~ ., data = train_1_RF) %>%
+  step_normalize(distancia_cai, distancia_mall, distancia_bus, distancia_avenida) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
+
+# 3. Definir modelo de Random Forest
+library(parsnip)
+modelo_1_RF <- rand_forest(
+  mtry = tune(),
+  min_n = tune(),
+  trees = 500
+) %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression")
+
+# 4. Crear grid de hiperparámetros
+library(dials)
+grid_rf <- grid_regular(
+  mtry(range = c(2L, 10L)),
+  min_n(range = c(2L, 10L)),
+  levels = 5
+)
+
+# 5. Workflow
+library(workflows)
+workflow_1_RF <- workflow() %>%
+  add_recipe(receta_1_RF) %>%
+  add_model(modelo_1_RF)
+
+# 6. Unir con geometría para CV espacial
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+# 7. Validación cruzada espacial
+library(spatialsample)
+set.seed(123)
+block_folds_RF <- spatial_block_cv(train_espacial, v = 5)
+
+# 8. Entrenamiento con CV espacial
+library(tune)
+resultados_1_RF <- workflow_1_RF %>%
+  tune_grid(
+    resamples = block_folds_RF,
+    grid = grid_rf,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
+  )
+
+# 9. Visualizar y seleccionar mejores parámetros
+autoplot(resultados_1_RF)
+show_best(resultados_1_RF, metric = "mae", n = 5)
+best_params_RF <- select_best(resultados_1_RF, metric = "mae")
+
+# 10. Finalizar y ajustar modelo final
+final_workflow_RF <- finalize_workflow(workflow_1_RF, best_params_RF)
+final_model_RF <- fit(final_workflow_RF, data = train_1_RF)
+
+# 11. Importancia de variables
+library(vip)
+vip(extract_fit_parsnip(final_model_RF), num_features = 20)
+
+```
+### 2.3.3
+```{r}
+# 1. Preparar base test sin property_id
+test_1_RF <- test %>%
+  select(-property_id)
+
+# 2. Predecir con el modelo final
+predicciones_RF <- predict(final_model_RF, new_data = test_1_RF)
+
+# 3. Adjuntar a base original test
+resultados_test_RF <- test %>%
+  select(property_id, lat, lon) %>%
+  mutate(predicted_price = predicciones_RF$.pred)
+
+```
+
+
 ### 2.3.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
+write.csv(pred_RF1,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
+          quote = FALSE)
+
 write.csv(pred_RF1,
           "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
           quote = FALSE)
