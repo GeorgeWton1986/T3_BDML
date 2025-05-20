@@ -1442,7 +1442,7 @@ library(vip)
 vip(extract_fit_parsnip(final_model_RF), num_features = 20)
 
 ```
-### 2.3.3
+### 2.3.3 Predicción
 ```{r}
 # 1. Preparar base test sin property_id
 test_1_RF <- test %>%
@@ -1451,10 +1451,10 @@ test_1_RF <- test %>%
 # 2. Predecir con el modelo final
 predicciones_RF <- predict(final_model_RF, new_data = test_1_RF)
 
-# 3. Adjuntar a base original test
-resultados_test_RF <- test %>%
-  select(property_id, lat, lon) %>%
-  mutate(predicted_price = predicciones_RF$.pred)
+# 3. Crear data frame con el formato requerido
+resultados_2_RF <- test %>%
+  select(property_id) %>%
+  mutate(price = predicciones_RF$.pred)
 
 ```
 
@@ -1467,8 +1467,8 @@ write.csv(pred_RF1,
           "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_RF1,
-          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
+write.csv(resultados_2_RF,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_RANDOM-FOREST2.csv", row.names = FALSE, 
           quote = FALSE)
 
 ```
