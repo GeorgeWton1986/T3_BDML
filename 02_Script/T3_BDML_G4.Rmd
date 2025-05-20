@@ -1141,24 +1141,15 @@ write.csv(pred_EN_3,
 ### 2.2.1 Entrenamiento
 
 ```{r}}
-# Actualizar rlang
-install.packages("rlang")
-
-# Reinicia tu sesión de R (Ctrl + Shift + F10 en RStudio)
-
-# Asegurar que parsnip esté cargado
-library(tidymodels)
-
-# Dividir en train y validación (80%-20%)
+# Crear validación cruzada espacial (5 folds)
 set.seed(123)
-split <- initial_split(train_factors, prop = 0.8)
-train_data <- training(split)
-valid_data <- testing(split)
+spatial_folds <- spatial_vfold_cv(train_factors, v = 5, strata = price) 
 
-# Crear receta (sin transformar variables, pero puedes agregar pasos si deseas)
-receta <- recipe(price ~ ., data = train_data)
+# Crear receta (puedes agregar preprocesos aquí si quieres)
+receta <- recipe(price ~ ., data = train_factors) %>%
+  update_role(lon, lat, new_role = "id")  # para que lon y lat no sean predictoras
 
-# Definir el modelo CART
+# Definir modelo CART para regresión
 modelo_cart <- decision_tree(mode = "regression") %>%
   set_engine("rpart")
 
@@ -1167,15 +1158,17 @@ workflow_cart <- workflow() %>%
   add_model(modelo_cart) %>%
   add_recipe(receta)
 
-# Entrenar el modelo
-fit_cart <- fit(workflow_cart, data = train_data)
+# Entrenar con validación cruzada espacial
+set.seed(123)
+results <- fit_resamples(
+  workflow_cart,
+  resamples = spatial_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = control_resamples(save_pred = TRUE)
+)
 
-# Predecir sobre validación
-predicciones_val <- predict(fit_cart, new_data = valid_data) %>%
-  bind_cols(valid_data %>% select(price))
-
-# Evaluar desempeño
-metrics(predicciones_val, truth = price, estimate = .pred)
+# Revisar métricas promedio
+collect_metrics(results)
 
 ```
 
