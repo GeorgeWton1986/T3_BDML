@@ -1165,14 +1165,23 @@ mae_train <- mean(abs(train_factors$price - pred_train))
 print(paste("MAE en entrenamiento:", round(mae_train, 2)))
 
 ```
-
+por revisar 
 ```{r}
 # Predecir
 pred_test <- predict(modelo_cart, newdata = test)
 
-# Calcular MAE
-mae_test <- mean(abs(test$price_real - pred_test))  # reemplaza "price_real" por el nombre correcto si difiere
+library(rpart)
+
+# Entrenar modelo CART con train_factors y fórmula definida
+modelo_cart <- rpart(formula_modelo, data = train_factors)
+
+# Predecir en test (que sí tiene columna price)
+pred_test <- predict(modelo_cart, newdata = test)
+
+# Calcular MAE ignorando NAs si hay
+mae_test <- mean(abs(test$price - pred_test), na.rm = TRUE)
 print(paste("MAE en test:", round(mae_test, 2)))
+
 
 ```
 
