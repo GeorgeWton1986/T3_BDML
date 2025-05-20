@@ -1490,33 +1490,162 @@ head(resultados_pred_rf)
 
 ## 2.4 Boosting
 
-### 2.4.1 Entrenamiento
+### 2.4.1 Entrenamiento CV tradicional
 
 ```{r}
+# Cargar paquetes
+pacman::p_load(caret, xgboost, Metrics)
+
+# Definir grid
+grid_xgb <- expand.grid(
+  nrounds = c(100, 250),
+  max_depth = c(2, 3),
+  eta = c(0.1, 0.05),
+  gamma = c(0, 1),
+  colsample_bytree = c(0.6),
+  min_child_weight = c(10),
+  subsample = c(0.8)
+)
+
+# Control
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Entrenar
+set.seed(123)
+modelo_xgb <- train(
+  formula_modelo,
+  data = train_factors,
+  method = "xgbTree",
+  trControl = ctrl,
+  tuneGrid = grid_xgb,
+  metric = "RMSE",
+  verbosity = 0
+)
 
 ```
 
-### 2.4.2 Predicción
+### 2.4.2 Predicción CV tradicional
 
 ```{r}
+# Igualar niveles de factores entre train y test
+for (col in cols_factor) {
+  test[[col]] <- factor(test[[col]], levels = levels(train_factors[[col]]))
+}
+
+predicciones_xgboost <- predict(modelo_xgb, newdata = test)
+
+# Guardar resultados
+resultados_prediccion_boosting <- test_aptos %>%
+  mutate(predicted_price_xgboost = predicciones_xgboost)
+
+# Preparar formato de Kaggle
+pred_boosting1 <- resultados_prediccion_boosting %>%
+  select(property_id, predicted_price_xgboost) %>%
+  rename(price = predicted_price_xgboost)
+
 
 ```
+
+### 2.4.1 Entrenamiento CV Espacial
+
+```{r}
+# Cargar paquetes
+pacman::p_load(caret, xgboost, Metrics)
+
+library(sf)
+library(dplyr)
+
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+library(spatialsample)
+
+set.seed(123)
+block_folds_EN <- spatial_block_cv(train_espacial, v = 5)
+
+library(ggplot2)
+autoplot(block_folds_EN)
+
+# Definir grid
+grid_xgb <- expand.grid(
+  nrounds = c(100, 250),
+  max_depth = c(2, 3),
+  eta = c(0.1, 0.05),
+  gamma = c(0, 1),
+  colsample_bytree = c(0.6),
+  min_child_weight = c(10),
+  subsample = c(0.8)
+)
+
+library(rsample)
+
+index <- lapply(block_folds_EN$splits, function(split) {
+  as.integer(rownames(analysis(split)))
+})
+
+indexOut <- lapply(block_folds_EN$splits, function(split) {
+  as.integer(rownames(assessment(split)))
+})
+
+# Control
+ctrl_espacial <- trainControl(
+  method = "cv",
+  number = 5,
+  index = index,
+  indexOut = indexOut
+)
+
+# Entrenar
+set.seed(123)
+modelo_xgb_espacial <- train(
+  formula_modelo,
+  data = train_factors,
+  method = "xgbTree",
+  trControl = ctrl_espacial,
+  tuneGrid = grid_xgb,
+  metric = "RMSE",
+  verbosity = 0
+)
+
+```
+
+### 2.4.2 Predicción CV tradicional
+
+```{r}
+# Asegurar que las variables categóricas en test tengan los mismos niveles que en train_factors
+for (col in cols_factor) {
+  test[[col]] <- factor(test[[col]], levels = levels(train_factors[[col]]))
+}
+
+# Hacer las predicciones
+predicciones_xgboost_espacial <- predict(modelo_xgb_espacial, newdata = test)
+
+# Guardar resultados con predicción
+resultados_prediccion_boosting_espacial <- test %>%
+  mutate(predicted_price_xgboost_espacial = predicciones_xgboost_espacial)
+
+# Preparar formato para Kaggle (o tu entrega)
+pred_boosting2 <- resultados_prediccion_boosting_espacial %>%
+  select(property_id, predicted_price_xgboost_espacial) %>%
+  rename(price = predicted_price_xgboost_espacial)
+
+```
+
+
 
 ### 2.4.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(pred_boosting1,
-          "C:/../03_Stores/10-04_G4_BOOSTING1.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING1.csv", row.names = FALSE, 
           quote = FALSE)
 
 write.csv(pred_boosting2,
-          "C:/../03_Stores/10-04_G4_BOOSTING2.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING2.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_boosting3,
-          "C:/../03_Stores/10-04_G4_BOOSTING3.csv", row.names = FALSE, 
-          quote = FALSE)
 ```
 
 ## 2.5 Redes neuronales
