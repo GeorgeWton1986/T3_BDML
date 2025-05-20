@@ -44,7 +44,9 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        spatialsample, # Muestreo espacial
        vip,
-       recipes
+       recipes,
+       tidymodels,
+       rsample
        )
 ```
 
@@ -867,7 +869,9 @@ train_factors <- train_localidades %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
   as.data.frame()
@@ -924,7 +928,9 @@ test <- test_aptos %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
   as.data.frame()
@@ -1134,15 +1140,97 @@ write.csv(pred_EN_3,
 
 ### 2.2.1 Entrenamiento
 
-```{r}
+```{r}}
+# Actualizar rlang
+install.packages("rlang")
+
+# Reinicia tu sesión de R (Ctrl + Shift + F10 en RStudio)
+
+# Asegurar que parsnip esté cargado
+library(tidymodels)
+
+# Dividir en train y validación (80%-20%)
+set.seed(123)
+split <- initial_split(train_factors, prop = 0.8)
+train_data <- training(split)
+valid_data <- testing(split)
+
+# Crear receta (sin transformar variables, pero puedes agregar pasos si deseas)
+receta <- recipe(price ~ ., data = train_data)
+
+# Definir el modelo CART
+modelo_cart <- decision_tree(mode = "regression") %>%
+  set_engine("rpart")
+
+# Crear workflow
+workflow_cart <- workflow() %>%
+  add_model(modelo_cart) %>%
+  add_recipe(receta)
+
+# Entrenar el modelo
+fit_cart <- fit(workflow_cart, data = train_data)
+
+# Predecir sobre validación
+predicciones_val <- predict(fit_cart, new_data = valid_data) %>%
+  bind_cols(valid_data %>% select(price))
+
+# Evaluar desempeño
+metrics(predicciones_val, truth = price, estimate = .pred)
 
 ```
 
 ### 2.2.2 Predicción
 
 ```{r}
+# 2.1 Generar predicción
+test$pred_CART_cv <- predict(cart_fit, new_data = test) %>% pull(.pred)
+
+# 2.2 (Opcional) Evaluación si tienes `price` real en test
+# mae(test, truth = price, estimate = pred_CART_cv)
+
 
 ```
+###2.2.2 Entrenamiento
+```{r}
+ install.packages("spatialEco")
+library(spatialEco)
+library(rsample)
+
+install.packages("blockCV") 
+library(blockCV)
+library(sf)   # para manejar datos espaciales
+
+# Crear folds espaciales (5 folds)
+folds_spatial <- spatialEco::spatialBlock(train_factors, 
+                                          x = "lot", y = "lan", 
+                                          theRange = 0.01, # distancia del bloque, ajusta según escala
+                                          k = 5, 
+                                          selection = "random")
+
+# Esto agrega a train_factors una columna fold con número de fold
+train_factors$fold <- folds_spatial$foldID
+
+# Entrenar y evaluar por folds:
+library(dplyr)
+library(purrr)
+
+results <- map_df(1:5, function(k){
+  train_fold <- filter(train_factors, fold != k)
+  val_fold <- filter(train_factors, fold == k)
+  
+  mod <- rpart(formula_modelo, data = train_fold, method = "anova")
+  pred_val <- predict(mod, newdata = val_fold)
+  
+  data.frame(fold = k,
+             RMSE = sqrt(mean((val_fold$price - pred_val)^2)))
+})
+
+print(results)
+mean(results$RMSE)  # RMSE promedio
+
+```
+
+
 
 ### 2.2.3 Template Kaggle
 
@@ -1233,68 +1321,6 @@ write.csv(pred_RF1,
 
 ```
 
-### 2.3.2 Entrenamiento
-
-```{r}
-set.seed(123)  # Para reproducibilidad
-
-# 1. Crear bloques espaciales para validación cruzada (5 folds)
-block_folds_rf <- spatial_block_cv(
-  train_espacial,
-  v = 5,
-  id = "spatial_cv"   # opcional, para identificar los folds
-)
-
-# 2. Preparar la receta
-receta_rf <- recipe(price ~ ., data = train_espacial) %>%
-  update_role(property_id, new_role = "ID") %>%    # property_id solo como ID
-  step_rm(geometry) %>%                            # eliminar columna geometry antes del modelo
-  step_dummy(all_nominal_predictors()) %>%        # dummies para categóricas
-  step_zv(all_predictors())                        # quitar variables sin variación
-
-# 3. Definir el modelo Random Forest con parámetros para tunear
-modelo_rf <- rand_forest(
-  mtry = tune(),        # número de variables a probar en cada split
-  trees = 1000,         # más árboles para estabilidad
-  min_n = tune()        # tamaño mínimo de nodo
-) %>%
-  set_engine("ranger", importance = "permutation") %>%  # importancia para análisis posterior
-  set_mode("regression")
-
-# 4. Armar workflow combinando receta y modelo
-workflow_rf <- workflow() %>%
-  add_recipe(receta_rf) %>%
-  add_model(modelo_rf)
-
-# 5. Crear grid de hiperparámetros para búsqueda
-grid_rf <- grid_regular(
-  mtry(range = c(2, floor(sqrt(ncol(train_espacial) - 2)))),  # rango dinámico mtry
-  min_n(range = c(5, 20)),                                    # valores más realistas para min_n
-  levels = 5
-)
-
-# 6. Ejecutar tuning con validación cruzada espacial
-resultados_rf <- tune_grid(
-  workflow_rf,
-  resamples = block_folds_rf,
-  grid = grid_rf,
-  metrics = metric_set(rmse, rsq, mae),   # métricas regresión
-  control = control_grid(save_pred = TRUE, verbose = TRUE)
-)
-
-# 7. Revisar resultados y seleccionar mejores hiperparámetros (menor RMSE)
-mejores_params <- select_best(resultados_rf, metric = "rmse")
-
-# 8. Finalizar workflow con mejores parámetros y entrenar modelo final
-final_workflow_rf <- finalize_workflow(workflow_rf, mejores_params)
-
-final_model_rf <- fit(final_workflow_rf, data = train_espacial)
-
-# 9. Importancia de variables (opcional)
-importancia <- final_model_rf %>%
-  extract_fit_parsnip() %>%
-  vip::vip(geom = "col")
-```
 
 ```{r}
 
