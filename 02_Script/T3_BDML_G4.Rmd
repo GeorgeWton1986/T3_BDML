@@ -1900,25 +1900,188 @@ t_espacial %>%
 
 ### 2.5.2 Predicción
 
+modelo 1
+
 ```{r}
 
+# Predecir sobre los datos de test (sin price)
+pred_rn1 <- predict(final_fit, new_data = test_rn)
+
+resultado_rn1 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn1$.pred)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn1 <- sd(resultado_rn1$.pred) / mean(resultado_rn1$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn1, 2)))
+
+# Análisis por segmento
+seg_rn1 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cof_var = round((sd(.pred) / mean(.pred)) * 100, 2)
+  )
+
+print(seg_rn1)
+
+# Outliers en predicciones
+umbral_superior_rn1 <- quantile(resultado_rn1$.pred, 0.975)
+umbral_inferior_rn1 <- quantile(resultado_rn1$.pred, 0.025)
+
+outliers_rn1 <- resultado_rn1 %>%
+  filter(.pred > umbral_superior_rn1 | .pred < umbral_inferior_rn1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn1)))
 ```
+
+Modelo 2
+
+```{r}
+# Preprocesar test
+test_rn <- test %>%
+  left_join(test_aptos %>% select(property_id, lat, lon), by = "property_id")
+
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn2 <- modelo_rn2 %>% predict(x_test)
+
+resultado_rn2 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn2$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn2 <- sd(resultado_rn2$price) / mean(resultado_rn2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn2, 2)))
+
+# Análisis por segmento
+seg_rn2 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn2)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn2)
+
+# Outliers en predicciones
+umbral_superior_rn2 <- quantile(resultado_rn2$.pred, 0.975)
+umbral_inferior_rn2 <- quantile(resultado_rn2$.pred, 0.025)
+
+outliers_rn2 <- resultado_rn2 %>%
+  filter(price > umbral_superior_rn2 | price < umbral_inferior_rn2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn2)))
+```
+
+Modelo 3
+
+```{r}
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn3 <- model_rn3 %>% predict(x_test)
+
+resultado_rn3 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn3))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn3$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn3 <- sd(resultado_rn3$price) / mean(resultado_rn3$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn3, 2)))
+
+# Análisis por segmento
+seg_rn3 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn3)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn3)
+
+# Outliers en predicciones
+umbral_superior_rn3 <- quantile(resultado_rn3$price, 0.975)
+umbral_inferior_rn3 <- quantile(resultado_rn3$price, 0.025)
+
+outliers_rn3 <- resultado_rn3 %>%
+  filter(price > umbral_superior_rn3 | price < umbral_inferior_rn3)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
+```
+
 
 ### 2.5.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
-write.csv(pred_rneuronales1,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES1.csv", row.names = FALSE, 
-          quote = FALSE)
+write.csv(resultado_rn2,
+          "../03_Stores/24-05_G4_RedNeuronal1.csv", row.names = FALSE, 
+          quote = FALSE)# cv tradicional
 
-write.csv(pred_rneuronales2,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_rneuronales3,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES3.csv", row.names = FALSE, 
-          quote = FALSE)
+write.csv(resultado_rn3,
+          "../03_Stores/24-05_G4_RedNeuronal2.csv", row.names = FALSE, 
+          quote = FALSE) # cv espacial
 ```
 
 ## 2.6 Super Learners
