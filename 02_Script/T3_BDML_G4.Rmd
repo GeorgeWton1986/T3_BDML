@@ -1606,6 +1606,7 @@ write.csv(pred_boosting2,
 
 ### 2.5.1 Entrenamiento
 
+Modeo 1
 ```{r}
 p_load( rio, ## read datasets
         tidyverse, # manipular dataframes
@@ -1617,7 +1618,7 @@ p_load( rio, ## read datasets
         tune
         ) 
 
-# Entrenar modelo
+# Receta del procesamiento
 recipe_nnet <- recipes::recipe(
   formula_modelo  , data = train_factors) %>%
   step_novel(all_nominal_predictors()) %>%   # para las clases no antes vistas en el train. 
@@ -1625,15 +1626,14 @@ recipe_nnet <- recipes::recipe(
   step_zv(all_predictors()) %>%   #  elimina predictores con varianza cero (constantes)
   step_normalize(all_predictors())  # normaliza los predictores. 
 
-# Estructura de la red
-nnet_base <- 
-    parsnip::mlp(
-      hidden_units = 6,
-      epochs = 100,
-      engine = 'nnet' # valor por defecto
-      ) %>% 
-    parsnip::set_mode("regression") %>% 
-    parsnip::set_engine("nnet")
+# Definición del modelo con hiperparámetros tuneables
+nnet_base <- mlp(
+  hidden_units = 10,   
+  epochs = 50,        
+  penalty = 0.01) %>%
+  set_mode("regression") %>%
+  set_engine("nnet")
+
 nnet_base
 
 # Flujo de trabajo
@@ -1641,16 +1641,262 @@ workflow_base <- workflow() %>%
   add_recipe(recipe_nnet) %>%
   add_model(nnet_base) 
 
-# Modelo
+# Validación cruzada
+set.seed(143)
+cv_folds <- vfold_cv(train_factors, v = 5)
 
-base_final_fit <- fit(workflow_base, data = train_factors)
+# Grilla de hiperparámetros
 
-#
+grid_nnet <- grid_regular(
+  hidden_units(range = c(3, 20)),
+  epochs(range = c(50, 200)),
+  levels = 5
+)
 
-broom::augment(base_final_fit, new_data = test_aptos) %>%
-  mutate(truth = test_aptos$price, estimate = .pred) %>%
-  mae(truth = truth, estimate = estimate)
+# Entrenar con validación cruzada (sin tuning)
+resamples_fit <- fit_resamples(
+  workflow_base,
+  resamples = cv_folds,
+  metrics = metric_set(mae, rmse),
+  control = control_resamples(save_pred = TRUE)
+)
+
+# Ver métricas promedio
+collect_metrics(resamples_fit)
+
+# Ajuste final sobre todos los datos
+final_fit <- fit(workflow_base, data = train_factors)
+
 ```
+
+Modeo 2 - cv tradicional
+
+```{r}
+# _______________________________________________________________
+# Cargar paquetes
+p_load(
+  tidyverse,
+  tidymodels,
+  keras,
+  recipes,
+  rsample,
+  yardstick
+)
+
+# Crear receta
+receta <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%  # Agrupa categorías poco frecuentes
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep <- prep(receta)
+
+
+# Obtener datos procesados
+x <- bake(receta_prep, new_data = NULL) %>%
+  select(-price) %>%
+  as.matrix()
+
+y <- bake(receta_prep, new_data = NULL) %>%
+  pull(price)
+
+# función para crear modelo con keras
+rn_model <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)  # salida continua para regresión
+}
+
+# Crear folds de validación cruzada
+set.seed(123)
+folds_rn <- vfold_cv(data.frame(x), v = 5)
+
+# Lista para almacenar resultados
+resultados_rn <- list()
+
+for (i in seq_along(folds_rn$splits)) {
+  cat("Fold", i, "\n")
+  
+  split <- folds_rn$splits[[i]]
+  
+  # Entrenamiento
+  x_train <- analysis(split)
+  y_train <- y[as.integer(split$in_id)]
+  
+  # Validación
+  x_val <- assessment(split)
+  y_val <- y[-as.integer(split$in_id)]
+  
+  # Crear modelo
+  model <- rn_model(input_shape = ncol(x_train))
+  
+  model %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model %>% fit(
+    x = as.matrix(x_train), y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(as.matrix(x_val), y_val),
+    verbose = 0
+  )
+  
+  # Evaluar en fold
+  scores <- model %>% evaluate(as.matrix(x_val), y_val, verbose = 0)
+  resultados_rn[[i]] <- scores  <- scores
+}
+
+# Resultados de los folds
+t_fold_rn <- map_dfr(resultados_rn, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+#t_fold_rn <- map_dfr(result_fold_rn, ~as_tibble_row(.x)) %>%
+ # rename(mse = loss, mae = mean_absolute_error)
+
+t_fold_rn %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+
+# Entrenar el modelo final
+modelo_rn2 <- rn_model(ncol(x))
+modelo_rn2 %>% compile(
+  loss = "mse",
+  optimizer = optimizer_rmsprop(),
+  metrics = list("mean_absolute_error")
+)
+
+history_final <- modelo_rn2 %>% fit(
+  x = x,
+  y = y,
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2
+)
+plot(history_final)
+
+
+
+```
+
+modelo 3 - cv espacial
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# Unir train y test para asignar zonas consistentes
+data_geo <- bind_rows(train_factors %>% select(lat, lon),
+                      test_rn %>% select(lat, lon))
+
+# K-means con 5 zonas (podés ajustar 'centros')
+set.seed(123)
+zonas <- kmeans(data_geo, centers = 5)
+
+# Añadir zona al dataset
+train_factors$zona <- zonas$cluster[1:nrow(train_factors)]
+test_rn$zona <- zonas$cluster[(nrow(train_factors)+1):nrow(data_geo)]
+
+# Crear receta
+receta3 <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep3 <- prep(receta3)
+
+# Preprocesar datos
+procesado3 <- bake(receta_prep3, new_data = NULL)
+
+x3 <- procesado3 %>% select(-price) %>% as.matrix()
+y3 <- procesado3$price
+
+# Añadir columna espacial para agrupar (ej. zona)
+procesado3$zona <- train_factors$zona  # Asegurate que `zona` esté en tu data
+
+# Crear folds de validación cruzada espacial
+set.seed(123)
+folds_espaciales3 <- group_vfold_cv(procesado3, group = zona, v = 5)
+
+# Función para crear modelo
+rn_model3 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# Lista para resultados
+resultados_espaciales <- list()
+
+for (i in seq_along(folds_espaciales3$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split <- folds_espaciales3$splits[[i]]
+  
+  data_train <- analysis(split)
+  data_val <- assessment(split)
+  
+  x_train <- data_train %>% select(-price, -zona) %>% as.matrix()
+  y_train <- data_train$price
+  
+  x_val <- data_val %>% select(-price, -zona) %>% as.matrix()
+  y_val <- data_val$price
+  
+  # Crear y compilar modelo
+  model_rn3 <- rn_model3(ncol(x_train))
+  model_rn3 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model_rn3 %>% fit(
+    x = x_train, y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val, y_val),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores3 <- model_rn3 %>% evaluate(x_val, y_val, verbose = 0)
+  resultados_espaciales[[i]] <- scores3
+}
+
+plot(history)
+# Tabla de resultados
+t_espacial <- map_dfr(resultados_espaciales, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# Promedios
+t_espacial %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
 
 ### 2.5.2 Predicción
 
