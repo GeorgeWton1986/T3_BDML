@@ -1607,7 +1607,49 @@ write.csv(pred_boosting2,
 ### 2.5.1 Entrenamiento
 
 ```{r}
+p_load( rio, ## read datasets
+        tidyverse, # manipular dataframes
+        tidymodels, #modelos de ML, colección de 8  librerías
+        nnet, # redes neuronales de una sola capa
+        workflows,
+        yardstick,
+        recipes,
+        tune
+        ) 
 
+# Entrenar modelo
+recipe_nnet <- recipes::recipe(
+  formula_modelo  , data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%   # para las clases no antes vistas en el train. 
+  step_dummy(all_nominal_predictors()) %>%  # crea dummies para las variables categóricas
+  step_zv(all_predictors()) %>%   #  elimina predictores con varianza cero (constantes)
+  step_normalize(all_predictors())  # normaliza los predictores. 
+
+# Estructura de la red
+nnet_base <- 
+    parsnip::mlp(
+      hidden_units = 6,
+      epochs = 100,
+      engine = 'nnet' # valor por defecto
+      ) %>% 
+    parsnip::set_mode("regression") %>% 
+    parsnip::set_engine("nnet")
+nnet_base
+
+# Flujo de trabajo
+workflow_base <- workflow() %>% 
+  add_recipe(recipe_nnet) %>%
+  add_model(nnet_base) 
+
+# Modelo
+
+base_final_fit <- fit(workflow_base, data = train_factors)
+
+#
+
+broom::augment(base_final_fit, new_data = test_aptos) %>%
+  mutate(truth = test_aptos$price, estimate = .pred) %>%
+  mae(truth = truth, estimate = estimate)
 ```
 
 ### 2.5.2 Predicción
