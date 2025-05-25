@@ -1052,16 +1052,16 @@ print(paste("CV de los precios reales (%):", round(cv_precios_reales_1, 2)))
 na_conteo_test <- colSums(is.na(test))
 print(na_conteo_test)
 
-test_EN <- test %>%
+test_1_EN <- test %>%
   na.omit()
 
-str(test_EN)
-print(dim(test_EN))
+str(test_1_EN)
+print(dim(test_1_EN))
 
 #2. Realizar predicciones en el conjunto de prueba
-prediccion_EN <- predict(final_model, new_data = test_EN)
+prediccion_1_EN <- predict(final_model_1, new_data = test_1_EN)
 
-resultado_EN_1 <- test_EN %>%
+resultado_EN_1 <- test_1_EN %>%
   select(property_id) %>%
   bind_cols(prediccion_EN)%>%
   rename(price = .pred)
@@ -1069,7 +1069,7 @@ resultado_EN_1 <- test_EN %>%
 head(resultado_EN_1)
 
 #3. Ver la distribución de las predicciones
-ggplot(prediccion_EN, aes(x = .pred/1000000)) +  # Convertir a millones
+ggplot(prediccion_1_EN, aes(x = .pred/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -1084,17 +1084,17 @@ ggplot(prediccion_EN, aes(x = .pred/1000000)) +  # Convertir a millones
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
 #4. Calcular estadísticas básicas de las predicciones
-summary(prediccion_EN$.pred)
+summary(prediccion_1_EN$.pred)
 
 #5. Calcular el coeficiente de variación de las predicciones
-cv_predicciones <- sd(prediccion_EN$.pred) / mean(prediccion_EN$.pred) * 100
-print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones, 2)))
+cv_predicciones_1_EN <- sd(prediccion_1_EN$.pred) / mean(prediccion_1_EN$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones_1_EN, 2)))
 
 #6. Unir predicciones con otras variables
 
-analisis_segmentos <- test_EN %>%
+analisis_segmentos_1_EN <- test_1_EN %>%
   select(property_type) %>%
-  bind_cols(prediccion_EN) %>%
+  bind_cols(prediccion_1_EN) %>%
   group_by(property_type) %>%
   summarize(
     media = mean(.pred),
@@ -1104,13 +1104,14 @@ analisis_segmentos <- test_EN %>%
 print(analisis_segmentos)
 
 #7. Identificar posibles valores atípicos
-umbral_superior <- quantile(prediccion_EN$.pred, 0.975)
-umbral_inferior <- quantile(prediccion_EN$.pred, 0.025)
+umbral_superior_1 <- quantile(prediccion_1_EN$.pred, 0.975)
+umbral_inferior_1 <- quantile(prediccion_1_EN$.pred, 0.025)
 
-outliers <- prediccion_EN %>%
-  filter(.pred > umbral_superior | .pred < umbral_inferior)
+outliers_1 <- prediccion_1_EN %>%
+  filter(.pred > umbral_superior_1 | .pred < umbral_inferior_1)
 
-print(paste("Número de outliers en predicciones:", nrow(outliers)))
+#8. Visualizar los outliers
+print(paste("Número de outliers en predicciones:", nrow(outliers_1)))
 
 ```
 
@@ -1120,14 +1121,6 @@ print(paste("Número de outliers en predicciones:", nrow(outliers)))
 # Descargar archivo
 write.csv(resultado_EN_1,
           "../03_Stores/18-05_G4_EN1.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_EN_2,
-          "C:/../03_Stores/10-04_G4_EN2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_EN_3,
-          "C:/../03_Stores/10-04_G4_EN3.csv", row.names = FALSE, 
           quote = FALSE)
 ```
 ## 2.1.B Elastic net CV Convencional
@@ -1173,27 +1166,32 @@ train_espacial <- train_localidades_sf %>%
   select(property_id, geometry) %>%
   inner_join(train_factors, by = "property_id")
 
-#7. Estimacion de validacion cruzada espacial por bloques
-#Este metodo de VC por bloques permite:
-  #1. Mantener la independencia espacial entre los bloques
-  #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+#7. Estimacion de validacion cruzada convencional
+#Este metodo de VC permite:
+  #1. División aleatoria de los datos en k partes
+  #2. Evaluación estándar de rendimiento del modelo
 
-library(spatialsample)
+library(rsample)
 set.seed(123)
-block_folds_EN <- spatial_block_cv(train_espacial, v = 5)
+cv_folds_EN <- vfold_cv(train_2_EN, 
+                        v = 5,
+                        strata = price) # Estratificar por precio
 
-#8. Verificación visual de los bloques de la valiación cruzada
-autoplot(block_folds_EN)
+#8. Verificación visual de los folds de la valiación cruzada
+print(cv_folds_EN)
 
-#9. Incluir la libreria purrr
+#9. Ver información de los folds
 #Vamos a ver el proceso de la validacion cruzada 
 library(purrr)
-walk(block_folds_EN$splits, function(x) print(autoplot(x)))
+map_df(cv_folds_EN$splits,~c(
+  train = nrow(training(.x)),
+  test= nrow(assessment(.x))
+  ))
 
 #10. Entrenamiento del modelo con validacion cruzada espacial
 resultados_2_EN <- workflow_2_EN %>%
   tune_grid(
-    resamples = block_folds_EN,
+    resamples = cv_folds_EN,
     grid = grid_elastic_2,
     metrics = metric_set(mae),
     control = control_grid(verbose = TRUE)
@@ -1242,7 +1240,84 @@ cv_precios_reales_2 <- sd(train_2_EN$price) / mean(train_2_EN$price) * 100
 print(paste("CV de los precios reales (%):", round(cv_precios_reales_2, 2)))
 
 ```
+### 2.1.2.B Predicción
 
+```{r}
+#1. Tomar la base de test y prepararla para la predicción
+na_conteo_test <- colSums(is.na(test))
+print(na_conteo_test)
+
+test_2_EN <- test %>%
+  na.omit()
+
+str(test_2_EN)
+print(dim(test_2_EN))
+
+#2. Realizar predicciones en el conjunto de prueba
+prediccion_2_EN <- predict(final_model_2, new_data = test_2_EN)
+
+resultado_EN_2 <- test_2_EN %>%
+  select(property_id) %>%
+  bind_cols(prediccion_EN)%>%
+  rename(price = .pred)
+
+head(resultado_EN_2)
+
+#3. Ver la distribución de las predicciones
+ggplot(prediccion_2_EN, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+#4. Calcular estadísticas básicas de las predicciones
+summary(prediccion_2_EN$.pred)
+
+#5. Calcular el coeficiente de variación de las predicciones
+cv_predicciones_2_EN <- sd(prediccion_2_EN$.pred) / mean(prediccion_2_EN$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones_2_EN, 2)))
+
+#6. Unir predicciones con otras variables
+
+analisis_segmentos_2_EN <- test_2_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_2_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100
+  )
+
+print(analisis_segmentos)
+
+#7. Identificar posibles valores atípicos
+umbral_superior_2 <- quantile(prediccion_2_EN$.pred, 0.975)
+umbral_inferior_2 <- quantile(prediccion_2_EN$.pred, 0.025)
+
+outliers_2 <- prediccion_2_EN %>%
+  filter(.pred > umbral_superior_2 | .pred < umbral_inferior_2)
+
+#8. Visualizar los outliers
+print(paste("Número de outliers en predicciones:", nrow(outliers_2)))
+
+```
+### 2.1.3.B Template Kaggle
+
+```{r}
+# Descargar archivo
+
+write.csv(resultado_EN_2,
+          "C:/../03_Stores/25-05_G4_EN2.csv", row.names = FALSE, 
+          quote = FALSE)
+```
 
 ## 2.2 CARTs
 
@@ -2405,10 +2480,6 @@ outliers_rn3 <- resultado_rn3 %>%
   filter(price > umbral_superior_rn3 | price < umbral_inferior_rn3)
 print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
 ```
-
-
-
-
 
 ### 2.5.3 Template Kaggle
 
