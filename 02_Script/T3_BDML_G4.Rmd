@@ -959,9 +959,9 @@ modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 #Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
 grid_elastic_1 <- grid_regular(
-  penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
   mixture(range = c(0, 1)),                          # Explorar de 0 a 1
-  levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
+  levels = c(15, 8)                                  # 15 niveles de penalty, 8 de mixture
 )
 
 #5. Crear un workflow (flujo de trabajo)
@@ -1011,7 +1011,7 @@ show_best(resultados_1_EN, metric = "mae", n = 5)
 
 #14. Seleccionar los mejores hiperparámetros
 best_params_1 <- select_best(resultados_1_EN, metric = "mae")
-print(best_params)
+print(best_params_1)
 
 #15. Finalizar el modelo con los mejores parámetros
 #Se realiza la implementación de los mejores parámetros en el workflow
@@ -1020,7 +1020,7 @@ print(best_params)
 #Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
 #Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
 final_workflow_1 <- workflow_1_EN %>%
-  finalize_workflow(best_params)
+  finalize_workflow(best_params_1)
 
 #16. Entrenar el modelo final con todos los datos
 final_model_1 <- fit(final_workflow_1, data = train_1_EN)
@@ -1149,9 +1149,9 @@ modelo_2_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 #Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
 grid_elastic_2 <- grid_regular(
-  penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
   mixture(range = c(0, 1)),                          # Explorar de 0 a 1
-  levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
+  levels = c(15, 8)                                  # 10 niveles de penalty, 5 de mixture
 )
 
 #5. Crear un workflow (flujo de trabajo)
@@ -1319,8 +1319,311 @@ write.csv(resultado_EN_2,
           quote = FALSE)
 ```
 
-## 2.2 CARTs
+## 2.1.C Comparación entre los modelos train_1_EN y train_2_EN
+```{r}
+# 1. Comparar las métricas MAE de validación cruzada
+mae_espacial <- collect_metrics(resultados_1_EN) %>% 
+  filter(.metric == "mae") %>% 
+  summarise(
+    mae_promedio = mean(mean),
+    mae_se = mean(std_err),
+    mejor_mae = min(mean)
+  ) %>%
+  mutate(modelo = "CV Espacial")
 
+mae_convencional <- collect_metrics(resultados_2_EN) %>% 
+  filter(.metric == "mae") %>% 
+  summarise(
+    mae_promedio = mean(mean),
+    mae_se = mean(std_err),
+    mejor_mae = min(mean)
+  ) %>%
+  mutate(modelo = "CV Convencional")
+
+# Combinar resultados
+comparacion_mae <- bind_rows(mae_espacial, mae_convencional)
+print("Comparación de MAE entre modelos:")
+print(comparacion_mae)
+
+# 2. Comparar los mejores hiperparámetros
+print("Mejores hiperparámetros - CV Espacial:")
+print(best_params_1)
+print("Mejores hiperparámetros - CV Convencional:")
+print(best_params_2)
+
+# 3. Crear tabla de comparación de coeficientes de variación
+cv_precios_reales_1 <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
+cv_precios_reales_2 <- sd(train_2_EN$price) / mean(train_2_EN$price) * 100
+
+comparacion_cv <- data.frame(
+  Modelo = c("CV Espacial", "CV Convencional"),
+  CV_Precios_Reales = c(round(cv_precios_reales_1, 2), round(cv_precios_reales_2, 2)),
+  Mejor_MAE = c(round(mae_espacial$mejor_mae, 0), round(mae_convencional$mejor_mae, 0)),
+  MAE_Promedio = c(round(mae_espacial$mae_promedio, 0), round(mae_convencional$mae_promedio, 0))
+)
+
+print("Tabla de comparación:")
+print(comparacion_cv)
+
+# 4. Visualización comparativa de MAE
+library(ggplot2)
+
+# Gráfico de barras comparativo
+ggplot(comparacion_mae, aes(x = modelo, y = mejor_mae, fill = modelo)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = paste("MAE:", format(round(mejor_mae, 0), big.mark = ","))), 
+            vjust = -0.5, size = 4) +
+  labs(title = "Comparación del Mejor MAE entre Modelos",
+       subtitle = "Validación Cruzada Espacial vs Convencional",
+       x = "Tipo de Validación Cruzada",
+       y = "MAE (Menor es mejor)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format())
+
+# 5. Comparar distribución de MAE en la validación cruzada
+mae_espacial_detalle <- collect_metrics(resultados_1_EN) %>% 
+  filter(.metric == "mae") %>%
+  mutate(modelo = "CV Espacial")
+
+mae_convencional_detalle <- collect_metrics(resultados_2_EN) %>% 
+  filter(.metric == "mae") %>%
+  mutate(modelo = "CV Convencional")
+
+mae_completo <- bind_rows(mae_espacial_detalle, mae_convencional_detalle)
+
+# Boxplot comparativo
+ggplot(mae_completo, aes(x = modelo, y = mean, fill = modelo)) +
+  geom_boxplot(alpha = 0.7, width = 0.5) +
+  geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+  labs(title = "Distribución de MAE en Validación Cruzada",
+       subtitle = "Comparación entre diferentes configuraciones de hiperparámetros",
+       x = "Tipo de Validación Cruzada",
+       y = "MAE",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format())
+
+# 6. Análisis estadístico de la diferencia
+diferencia_mae <- mae_espacial$mejor_mae - mae_convencional$mejor_mae
+diferencia_porcentual <- (diferencia_mae / mae_convencional$mejor_mae) * 100
+
+print(paste("Diferencia en MAE:", format(round(diferencia_mae, 0), big.mark = ",")))
+print(paste("Diferencia porcentual:", round(diferencia_porcentual, 2), "%"))
+
+if(diferencia_mae > 0) {
+  print("El modelo con CV Convencional tiene mejor rendimiento (menor MAE)")
+} else {
+  print("El modelo con CV Espacial tiene mejor rendimiento (menor MAE)")
+}
+
+# 7. Comparar los coeficientes más importantes de ambos modelos
+top_coef_espacial <- head(coeficientes_1, 5) %>% 
+  mutate(modelo = "CV Espacial") %>%
+  select(modelo, term, estimate)
+
+top_coef_convencional <- head(coeficientes_2, 5) %>% 
+  mutate(modelo = "CV Convencional") %>%
+  select(modelo, term, estimate)
+
+print("Top 5 coeficientes - CV Espacial:")
+print(top_coef_espacial)
+print("Top 5 coeficientes - CV Convencional:")
+print(top_coef_convencional)
+
+```
+## 2.1.D Comparación entre los modelos test_1_EN y test_2_EN
+
+```{r}
+### 2.4 Comparación de Predicciones: CV Espacial vs CV Convencional
+
+#1. Comparación de estadísticas descriptivas de las predicciones
+print("=== COMPARACIÓN DE ESTADÍSTICAS DE PREDICCIONES ===")
+
+# Resumen estadístico comparativo
+comparacion_stats <- data.frame(
+  Modelo = c("CV Espacial", "CV Convencional"),
+  Media = c(mean(prediccion_1_EN$.pred), mean(prediccion_2_EN$.pred)),
+  Mediana = c(median(prediccion_1_EN$.pred), median(prediccion_2_EN$.pred)),
+  Desv_Std = c(sd(prediccion_1_EN$.pred), sd(prediccion_2_EN$.pred)),
+  Min = c(min(prediccion_1_EN$.pred), min(prediccion_2_EN$.pred)),
+  Max = c(max(prediccion_1_EN$.pred), max(prediccion_2_EN$.pred)),
+  CV_Predicciones = c(cv_predicciones_1_EN, cv_predicciones_2_EN),
+  Num_Outliers = c(nrow(outliers_1), nrow(outliers_2))
+)
+
+# Formatear números grandes
+comparacion_stats_formateada <- comparacion_stats %>%
+  mutate(
+    Media = format(round(Media, 0), big.mark = ","),
+    Mediana = format(round(Mediana, 0), big.mark = ","),
+    Desv_Std = format(round(Desv_Std, 0), big.mark = ","),
+    Min = format(round(Min, 0), big.mark = ","),
+    Max = format(round(Max, 0), big.mark = ","),
+    CV_Predicciones = round(CV_Predicciones, 2)
+  )
+
+print(comparacion_stats_formateada)
+
+#2. Comparación de coeficientes de variación
+print("=== COMPARACIÓN DE COEFICIENTES DE VARIACIÓN ===")
+print(paste("CV Espacial:", round(cv_predicciones_1_EN, 2), "%"))
+print(paste("CV Convencional:", round(cv_predicciones_2_EN, 2), "%"))
+
+diferencia_cv <- cv_predicciones_1_EN - cv_predicciones_2_EN
+print(paste("Diferencia en CV:", round(diferencia_cv, 2), "puntos porcentuales"))
+
+if(abs(diferencia_cv) < 0.5) {
+  print("Ambos modelos tienen variabilidad similar")
+} else if(cv_predicciones_1_EN < cv_predicciones_2_EN) {
+  print("El modelo espacial tiene predicciones más consistentes")
+} else {
+  print("El modelo convencional tiene predicciones más consistentes")
+}
+
+#3. Visualización comparativa de distribuciones
+library(ggplot2)
+
+# Combinar datos para visualización
+predicciones_combinadas <- bind_rows(
+  prediccion_1_EN %>% mutate(Modelo = "CV Espacial"),
+  prediccion_2_EN %>% mutate(Modelo = "CV Convencional")
+)
+
+# Histograma comparativo
+ggplot(predicciones_combinadas, aes(x = .pred/1000000, fill = Modelo)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  labs(title = "Comparación de Distribuciones de Predicciones",
+       subtitle = "CV Espacial vs CV Convencional",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "top"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),
+    breaks = scales::pretty_breaks(n = 8)
+  )
+
+# Boxplot comparativo
+ggplot(predicciones_combinadas, aes(x = Modelo, y = .pred/1000000, fill = Modelo)) +
+  geom_boxplot(alpha = 0.7, width = 0.6) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, color = "red") +
+  labs(title = "Comparación de Predicciones por Modelo",
+       subtitle = "El rombo rojo indica la media",
+       x = "Modelo",
+       y = "Precio predicho (Millones de Pesos)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format(accuracy = 0.1))
+
+#4. Comparación por tipo de propiedad
+print("=== ANÁLISIS POR TIPO DE PROPIEDAD ===")
+
+# Corregir nombres de variables (parecía haber un error en el código original)
+analisis_segmentos_1_EN <- test_1_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_1_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100,
+    .groups = 'drop'
+  ) %>%
+  mutate(Modelo = "CV Espacial")
+
+analisis_segmentos_2_EN <- test_2_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_2_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100,
+    .groups = 'drop'
+  ) %>%
+  mutate(Modelo = "CV Convencional")
+
+# Combinar análisis por segmentos
+analisis_completo <- bind_rows(analisis_segmentos_1_EN, analisis_segmentos_2_EN)
+
+print("Análisis por tipo de propiedad:")
+print(analisis_completo)
+
+# Visualización por tipo de propiedad
+ggplot(analisis_completo, aes(x = property_type, y = media/1000000, fill = Modelo)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_text(aes(label = paste(round(media/1000000, 1), "M")), 
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Predicciones Promedio por Tipo de Propiedad",
+       x = "Tipo de Propiedad",
+       y = "Precio Promedio (Millones de Pesos)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "top"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral"))
+
+#5. Correlación entre predicciones de ambos modelos
+correlacion <- cor(prediccion_1_EN$.pred, prediccion_2_EN$.pred)
+print(paste("Correlación entre predicciones:", round(correlacion, 4)))
+
+# Gráfico de dispersión
+data_correlacion <- data.frame(
+  Espacial = prediccion_1_EN$.pred / 1000000,
+  Convencional = prediccion_2_EN$.pred / 1000000
+)
+
+ggplot(data_correlacion, aes(x = Espacial, y = Convencional)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "lm", color = "red", linetype = "dashed") +
+  geom_abline(slope = 1, intercept = 0, color = "gray", linetype = "dotted") +
+  labs(title = paste("Correlación entre Predicciones (r =", round(correlacion, 3), ")"),
+       x = "CV Espacial (Millones de Pesos)",
+       y = "CV Convencional (Millones de Pesos)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+#6. Resumen final
+print("=== RESUMEN COMPARATIVO ===")
+print(paste("Diferencia promedio en predicciones:", 
+            format(round(mean(prediccion_1_EN$.pred) - mean(prediccion_2_EN$.pred), 0), big.mark = ",")))
+
+if(cv_predicciones_1_EN < cv_predicciones_2_EN) {
+  print("GANADOR EN CONSISTENCIA: CV Espacial (menor CV)")
+} else {
+  print("GANADOR EN CONSISTENCIA: CV Convencional (menor CV)")
+}
+
+print(paste("Correlación alta (", round(correlacion, 3), ") indica que ambos modelos hacen predicciones similares"))
+```
+
+
+## 2.2 CARTs
 
 ### 2.2.1 Entrenamiento tradicional 
 ```{r}
