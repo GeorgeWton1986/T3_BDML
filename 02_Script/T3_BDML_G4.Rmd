@@ -342,7 +342,7 @@ train_localidades <- left_join(train_localidades, dummies_df, by = "property_id"
 
 ```
 
-1)  Identificar distancia a Mall(revisarlo porque no carga)
+1)  Identificar distancia a Mall
 
 ```{r}
 # Obtener los límites de Bogotá
@@ -834,7 +834,7 @@ dummies_df_test <- test_aptos_tokens_clean %>%
 # Unir a df 
 test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
-
+###--------#####
 ## 1.4 Convertir a factores base entrenamiento
 
 ```{r}
@@ -847,7 +847,7 @@ cols_factor <- c(
   'binaria_gym',
   'binaria_laundry',
   'binaria_elevator'
-)
+)##OK
 
 # Filtrar y preparar datos
 train_factors <- train_localidades %>%
@@ -856,6 +856,11 @@ train_factors <- train_localidades %>%
     price,
     year,
     property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
     distancia_cai,
     distancia_mall,
     distancia_bus,
@@ -877,6 +882,11 @@ train_factors <- na.omit(train_factors) ## Esta es la base que se usará para el
 # Variables predictoras
 variables_predictoras <- c(
   'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
   'property_type',
   'distancia_cai',
   'distancia_mall',
@@ -909,12 +919,17 @@ cols_factor <- c(
   'binaria_elevator'
 )
 
-# Preprocesamiento test
+# Conservar test con `price` para evaluación posterior
 test <- test_aptos %>%
   select(
     property_id,
     year,
     property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
     distancia_cai,
     distancia_mall,
     distancia_bus,
@@ -928,19 +943,21 @@ test <- test_aptos %>%
     lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
+  na.omit() %>%
   as.data.frame()
+
 ```
 
 # 2. Entrenamiento de modelos
 
-## 2.1 Elastic net
+## 2.1.A Elastic net CV Espacial
 
-### 2.1.1 Entrenamiento
+### 2.1.1.A Entrenamiento
 
 ```{r}
 #1. Eliminar variables innecesarias
 train_1_EN <- train_factors %>%
-  select(-property_id)
+  select(-property_id, -lat, -lon) #Quitar property_id y lat, lon
 
 #2. Crear la receta del entranamiento
 # Cargar explícitamente el paquete recipes
@@ -958,10 +975,10 @@ modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 #Penalty: lambda que controla la regularización
 #Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
-grid_elastic <- grid_regular(
-  penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+grid_elastic_1 <- grid_regular(
+  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
   mixture(range = c(0, 1)),                          # Explorar de 0 a 1
-  levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
+  levels = c(15, 8)                                  # 15 niveles de penalty, 8 de mixture
 )
 
 #5. Crear un workflow (flujo de trabajo)
@@ -996,7 +1013,7 @@ walk(block_folds_EN$splits, function(x) print(autoplot(x)))
 resultados_1_EN <- workflow_1_EN %>%
   tune_grid(
     resamples = block_folds_EN,
-    grid = grid_elastic,
+    grid = grid_elastic_1,
     metrics = metric_set(mae),
     control = control_grid(verbose = TRUE)
   )
@@ -1010,8 +1027,8 @@ collect_metrics(resultados_1_EN)
 show_best(resultados_1_EN, metric = "mae", n = 5)
 
 #14. Seleccionar los mejores hiperparámetros
-best_params <- select_best(resultados_1_EN, metric = "mae")
-print(best_params)
+best_params_1 <- select_best(resultados_1_EN, metric = "mae")
+print(best_params_1)
 
 #15. Finalizar el modelo con los mejores parámetros
 #Se realiza la implementación de los mejores parámetros en el workflow
@@ -1019,57 +1036,57 @@ print(best_params)
 #La función finalize_workflow() sustituye los placeholders tune() por los valores específicos de best_params.
 #Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
 #Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
-final_workflow <- workflow_1_EN %>%
-  finalize_workflow(best_params)
+final_workflow_1 <- workflow_1_EN %>%
+  finalize_workflow(best_params_1)
 
 #16. Entrenar el modelo final con todos los datos
-final_model <- fit(final_workflow, data = train_1_EN)
+final_model_1 <- fit(final_workflow_1, data = train_1_EN)
 
 #17. Analizar los coeficientes del modelo
 # Ver todos los coeficientes (ordenados por magnitud)
 library(broom)
-coeficientes <- tidy(final_model) %>%
+coeficientes_1 <- tidy(final_model_1) %>%
   filter(term != "(Intercept)") %>%
   arrange(desc(abs(estimate)))
 
 #18. Ver los coeficientes más importantes
-head(coeficientes, 10)
+head(coeficientes_1, 10)
 
 #19. Ver la importancia de las variables
 library(vip)
-vip(extract_fit_parsnip(final_model), num_features = 20)
+vip(extract_fit_parsnip(final_model_1), num_features = 20)
 
 #20. Calcular el coeficiente de variación de los precios reales
-cv_precios_reales <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
-print(paste("CV de los precios reales (%):", round(cv_precios_reales, 2)))
+cv_precios_reales_1 <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
+print(paste("CV de los precios reales (%):", round(cv_precios_reales_1, 2)))
 
 ```
 
-### 2.1.2 Predicción
+### 2.1.2.A Predicción
 
 ```{r}
 #1. Tomar la base de test y prepararla para la predicción
 na_conteo_test <- colSums(is.na(test))
 print(na_conteo_test)
 
-test_EN <- test %>%
+test_1_EN <- test %>%
   na.omit()
 
-str(test_EN)
-print(dim(test_EN))
+str(test_1_EN)
+print(dim(test_1_EN))
 
 #2. Realizar predicciones en el conjunto de prueba
-prediccion_EN <- predict(final_model, new_data = test_EN)
+prediccion_1_EN <- predict(final_model_1, new_data = test_1_EN)
 
-resultado_EN_1 <- test_EN %>%
+resultado_EN_1 <- test_1_EN %>%
   select(property_id) %>%
-  bind_cols(prediccion_EN)%>%
+  bind_cols(prediccion_1_EN)%>%
   rename(price = .pred)
 
 head(resultado_EN_1)
 
 #3. Ver la distribución de las predicciones
-ggplot(prediccion_EN, aes(x = .pred/1000000)) +  # Convertir a millones
+ggplot(prediccion_1_EN, aes(x = .pred/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -1084,55 +1101,546 @@ ggplot(prediccion_EN, aes(x = .pred/1000000)) +  # Convertir a millones
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
 #4. Calcular estadísticas básicas de las predicciones
-summary(prediccion_EN$.pred)
+summary(prediccion_1_EN$.pred)
 
 #5. Calcular el coeficiente de variación de las predicciones
-cv_predicciones <- sd(prediccion_EN$.pred) / mean(prediccion_EN$.pred) * 100
-print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones, 2)))
+cv_predicciones_1_EN <- sd(prediccion_1_EN$.pred) / mean(prediccion_1_EN$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones_1_EN, 2)))
 
 #6. Unir predicciones con otras variables
 
-analisis_segmentos <- test_EN %>%
+analisis_segmentos_1_EN <- test_1_EN %>%
   select(property_type) %>%
-  bind_cols(prediccion_EN) %>%
+  bind_cols(prediccion_1_EN) %>%
   group_by(property_type) %>%
   summarize(
     media = mean(.pred),
     cv = (sd(.pred) / mean(.pred)) * 100
   )
 
-print(analisis_segmentos)
+print(analisis_segmentos_1_EN)
 
 #7. Identificar posibles valores atípicos
-umbral_superior <- quantile(prediccion_EN$.pred, 0.975)
-umbral_inferior <- quantile(prediccion_EN$.pred, 0.025)
+umbral_superior_1 <- quantile(prediccion_1_EN$.pred, 0.975)
+umbral_inferior_1 <- quantile(prediccion_1_EN$.pred, 0.025)
 
-outliers <- prediccion_EN %>%
-  filter(.pred > umbral_superior | .pred < umbral_inferior)
+outliers_1 <- prediccion_1_EN %>%
+  filter(.pred > umbral_superior_1 | .pred < umbral_inferior_1)
 
-print(paste("Número de outliers en predicciones:", nrow(outliers)))
+#8. Visualizar los outliers
+print(paste("Número de outliers en predicciones:", nrow(outliers_1)))
 
 ```
 
-### 2.1.3 Template Kaggle
+### 2.1.3.A Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(resultado_EN_1,
           "../03_Stores/18-05_G4_EN1.csv", row.names = FALSE, 
           quote = FALSE)
+```
+## 2.1.B Elastic net CV Convencional
 
-write.csv(pred_EN_2,
-          "C:/../03_Stores/10-04_G4_EN2.csv", row.names = FALSE, 
-          quote = FALSE)
+### 2.1.1.B Entrenamiento
 
-write.csv(pred_EN_3,
-          "C:/../03_Stores/10-04_G4_EN3.csv", row.names = FALSE, 
+```{r}
+#1. Eliminar variables innecesarias
+train_2_EN <- train_factors %>%
+  select(-property_id, -lat, -lon) #Quitar property_id y lat, lon
+
+#2. Crear la receta del entranamiento
+# Cargar explícitamente el paquete recipes
+receta_2_EN <- recipe(price ~ ., data = train_2_EN) %>%
+  step_normalize(distancia_cai, distancia_mall, distancia_bus, distancia_avenida) %>% #normalizar solo predictores numéricos (distancias)
+  step_dummy(all_nominal_predictors()) %>% ## Convertir variables categóricas a dummies
+  step_zv(all_predictors()) #Remover predictores con varianza cero
+
+#3. Definir el modelo
+modelo_2_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet") 
+
+#4. Especificar los paramatros alpha y lambda EN
+#Estamos creando la cuadricula de búsqueda para los hiperparámetros del modelo Elastric Net
+#Penalty: lambda que controla la regularización
+#Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
+
+grid_elastic_2 <- grid_regular(
+  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  mixture(range = c(0, 1)),                          # Explorar de 0 a 1
+  levels = c(15, 8)                                  # 10 niveles de penalty, 5 de mixture
+)
+
+#5. Crear un workflow (flujo de trabajo)
+
+workflow_2_EN <- workflow() %>%
+  add_recipe(receta_2_EN) %>%
+  add_model(modelo_2_EN)
+
+#6. Unir train_factors con train_localidades_sf por medio de property_id
+
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+#7. Estimacion de validacion cruzada convencional
+#Este metodo de VC permite:
+  #1. División aleatoria de los datos en k partes
+  #2. Evaluación estándar de rendimiento del modelo
+
+library(rsample)
+set.seed(123)
+cv_folds_EN <- vfold_cv(train_2_EN, 
+                        v = 5,
+                        strata = price) # Estratificar por precio
+
+#8. Verificación visual de los folds de la valiación cruzada
+print(cv_folds_EN)
+
+#9. Ver información de los folds
+#Vamos a ver el proceso de la validacion cruzada 
+library(purrr)
+map_df(cv_folds_EN$splits,~c(
+  train = nrow(training(.x)),
+  test= nrow(assessment(.x))
+  ))
+
+#10. Entrenamiento del modelo con validacion cruzada espacial
+resultados_2_EN <- workflow_2_EN %>%
+  tune_grid(
+    resamples = cv_folds_EN,
+    grid = grid_elastic_2,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
+  )
+#11. Ver los resultados del modelo 1
+autoplot(resultados_2_EN)
+
+#12. Resultado del modelo 1
+collect_metrics(resultados_2_EN)
+
+#13. Mostrar los mejores resultados
+show_best(resultados_2_EN, metric = "mae", n = 5)
+
+#14. Seleccionar los mejores hiperparámetros
+best_params_2 <- select_best(resultados_2_EN, metric = "mae")
+print(best_params_2)
+
+#15. Finalizar el modelo con los mejores parámetros
+#Se realiza la implementación de los mejores parámetros en el workflow
+#¡¡¡IMPORTANTE!!!
+#La función finalize_workflow() sustituye los placeholders tune() por los valores específicos de best_params.
+#Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
+#Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
+final_workflow_2 <- workflow_2_EN %>%
+  finalize_workflow(best_params_2)
+
+#16. Entrenar el modelo final con todos los datos
+final_model_2 <- fit(final_workflow_2, data = train_2_EN)
+
+#17. Analizar los coeficientes del modelo
+# Ver todos los coeficientes (ordenados por magnitud)
+library(broom)
+coeficientes_2 <- tidy(final_model_2) %>%
+  filter(term != "(Intercept)") %>%
+  arrange(desc(abs(estimate)))
+
+#18. Ver los coeficientes más importantes
+head(coeficientes_2, 10)
+
+#19. Ver la importancia de las variables
+library(vip)
+vip(extract_fit_parsnip(final_model_2), num_features = 20)
+
+#20. Calcular el coeficiente de variación de los precios reales
+cv_precios_reales_2 <- sd(train_2_EN$price) / mean(train_2_EN$price) * 100
+print(paste("CV de los precios reales (%):", round(cv_precios_reales_2, 2)))
+
+```
+### 2.1.2.B Predicción
+
+```{r}
+#1. Tomar la base de test y prepararla para la predicción
+na_conteo_test <- colSums(is.na(test))
+print(na_conteo_test)
+
+test_2_EN <- test %>%
+  na.omit()
+
+str(test_2_EN)
+print(dim(test_2_EN))
+
+#2. Realizar predicciones en el conjunto de prueba
+prediccion_2_EN <- predict(final_model_2, new_data = test_2_EN)
+
+resultado_EN_2 <- test_2_EN %>%
+  select(property_id) %>%
+  bind_cols(prediccion_2_EN)%>%
+  rename(price = .pred)
+
+head(resultado_EN_2)
+
+#3. Ver la distribución de las predicciones
+ggplot(prediccion_2_EN, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+#4. Calcular estadísticas básicas de las predicciones
+summary(prediccion_2_EN$.pred)
+
+#5. Calcular el coeficiente de variación de las predicciones
+cv_predicciones_2_EN <- sd(prediccion_2_EN$.pred) / mean(prediccion_2_EN$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_predicciones_2_EN, 2)))
+
+#6. Unir predicciones con otras variables
+
+analisis_segmentos_2_EN <- test_2_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_2_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100
+  )
+
+print(analisis_segmentos_2_EN)
+
+#7. Identificar posibles valores atípicos
+umbral_superior_2 <- quantile(prediccion_2_EN$.pred, 0.975)
+umbral_inferior_2 <- quantile(prediccion_2_EN$.pred, 0.025)
+
+outliers_2 <- prediccion_2_EN %>%
+  filter(.pred > umbral_superior_2 | .pred < umbral_inferior_2)
+
+#8. Visualizar los outliers
+print(paste("Número de outliers en predicciones:", nrow(outliers_2)))
+
+```
+### 2.1.3.B Template Kaggle
+
+```{r}
+# Descargar archivo
+
+write.csv(resultado_EN_2,
+          "C:/../03_Stores/25-05_G4_EN2.csv", row.names = FALSE, 
           quote = FALSE)
 ```
 
-## 2.2 CARTs
+## 2.1.C Comparación entre los modelos train_1_EN y train_2_EN
+```{r}
+# 1. Comparar las métricas MAE de validación cruzada
+mae_espacial <- collect_metrics(resultados_1_EN) %>% 
+  filter(.metric == "mae") %>% 
+  summarise(
+    mae_promedio = mean(mean),
+    mae_se = mean(std_err),
+    mejor_mae = min(mean)
+  ) %>%
+  mutate(modelo = "CV Espacial")
 
+mae_convencional <- collect_metrics(resultados_2_EN) %>% 
+  filter(.metric == "mae") %>% 
+  summarise(
+    mae_promedio = mean(mean),
+    mae_se = mean(std_err),
+    mejor_mae = min(mean)
+  ) %>%
+  mutate(modelo = "CV Convencional")
+
+# Combinar resultados
+comparacion_mae <- bind_rows(mae_espacial, mae_convencional)
+print("Comparación de MAE entre modelos:")
+print(comparacion_mae)
+
+# 2. Comparar los mejores hiperparámetros
+print("Mejores hiperparámetros - CV Espacial:")
+print(best_params_1)
+print("Mejores hiperparámetros - CV Convencional:")
+print(best_params_2)
+
+# 3. Crear tabla de comparación de coeficientes de variación
+cv_precios_reales_1 <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
+cv_precios_reales_2 <- sd(train_2_EN$price) / mean(train_2_EN$price) * 100
+
+comparacion_cv <- data.frame(
+  Modelo = c("CV Espacial", "CV Convencional"),
+  CV_Precios_Reales = c(round(cv_precios_reales_1, 2), round(cv_precios_reales_2, 2)),
+  Mejor_MAE = c(round(mae_espacial$mejor_mae, 0), round(mae_convencional$mejor_mae, 0)),
+  MAE_Promedio = c(round(mae_espacial$mae_promedio, 0), round(mae_convencional$mae_promedio, 0))
+)
+
+print("Tabla de comparación:")
+print(comparacion_cv)
+
+# 4. Visualización comparativa de MAE
+library(ggplot2)
+
+# Gráfico de barras comparativo
+ggplot(comparacion_mae, aes(x = modelo, y = mejor_mae, fill = modelo)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = paste("MAE:", format(round(mejor_mae, 0), big.mark = ","))), 
+            vjust = -0.5, size = 4) +
+  labs(title = "Comparación del Mejor MAE entre Modelos",
+       subtitle = "Validación Cruzada Espacial vs Convencional",
+       x = "Tipo de Validación Cruzada",
+       y = "MAE (Menor es mejor)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format())
+
+# 5. Comparar distribución de MAE en la validación cruzada
+mae_espacial_detalle <- collect_metrics(resultados_1_EN) %>% 
+  filter(.metric == "mae") %>%
+  mutate(modelo = "CV Espacial")
+
+mae_convencional_detalle <- collect_metrics(resultados_2_EN) %>% 
+  filter(.metric == "mae") %>%
+  mutate(modelo = "CV Convencional")
+
+mae_completo <- bind_rows(mae_espacial_detalle, mae_convencional_detalle)
+
+# Boxplot comparativo
+ggplot(mae_completo, aes(x = modelo, y = mean, fill = modelo)) +
+  geom_boxplot(alpha = 0.7, width = 0.5) +
+  geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+  labs(title = "Distribución de MAE en Validación Cruzada",
+       subtitle = "Comparación entre diferentes configuraciones de hiperparámetros",
+       x = "Tipo de Validación Cruzada",
+       y = "MAE",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format())
+
+# 6. Análisis estadístico de la diferencia
+diferencia_mae <- mae_espacial$mejor_mae - mae_convencional$mejor_mae
+diferencia_porcentual <- (diferencia_mae / mae_convencional$mejor_mae) * 100
+
+print(paste("Diferencia en MAE:", format(round(diferencia_mae, 0), big.mark = ",")))
+print(paste("Diferencia porcentual:", round(diferencia_porcentual, 2), "%"))
+
+if(diferencia_mae > 0) {
+  print("El modelo con CV Convencional tiene mejor rendimiento (menor MAE)")
+} else {
+  print("El modelo con CV Espacial tiene mejor rendimiento (menor MAE)")
+}
+
+# 7. Comparar los coeficientes más importantes de ambos modelos
+top_coef_espacial <- head(coeficientes_1, 5) %>% 
+  mutate(modelo = "CV Espacial") %>%
+  select(modelo, term, estimate)
+
+top_coef_convencional <- head(coeficientes_2, 5) %>% 
+  mutate(modelo = "CV Convencional") %>%
+  select(modelo, term, estimate)
+
+print("Top 5 coeficientes - CV Espacial:")
+print(top_coef_espacial)
+print("Top 5 coeficientes - CV Convencional:")
+print(top_coef_convencional)
+
+```
+## 2.1.D Comparación entre los modelos test_1_EN y test_2_EN
+
+```{r}
+### 2.4 Comparación de Predicciones: CV Espacial vs CV Convencional
+
+#1. Comparación de estadísticas descriptivas de las predicciones
+print("=== COMPARACIÓN DE ESTADÍSTICAS DE PREDICCIONES ===")
+
+# Resumen estadístico comparativo
+comparacion_stats <- data.frame(
+  Modelo = c("CV Espacial", "CV Convencional"),
+  Media = c(mean(prediccion_1_EN$.pred), mean(prediccion_2_EN$.pred)),
+  Mediana = c(median(prediccion_1_EN$.pred), median(prediccion_2_EN$.pred)),
+  Desv_Std = c(sd(prediccion_1_EN$.pred), sd(prediccion_2_EN$.pred)),
+  Min = c(min(prediccion_1_EN$.pred), min(prediccion_2_EN$.pred)),
+  Max = c(max(prediccion_1_EN$.pred), max(prediccion_2_EN$.pred)),
+  CV_Predicciones = c(cv_predicciones_1_EN, cv_predicciones_2_EN),
+  Num_Outliers = c(nrow(outliers_1), nrow(outliers_2))
+)
+
+# Formatear números grandes
+comparacion_stats_formateada <- comparacion_stats %>%
+  mutate(
+    Media = format(round(Media, 0), big.mark = ","),
+    Mediana = format(round(Mediana, 0), big.mark = ","),
+    Desv_Std = format(round(Desv_Std, 0), big.mark = ","),
+    Min = format(round(Min, 0), big.mark = ","),
+    Max = format(round(Max, 0), big.mark = ","),
+    CV_Predicciones = round(CV_Predicciones, 2)
+  )
+
+print(comparacion_stats_formateada)
+
+#2. Comparación de coeficientes de variación
+print("=== COMPARACIÓN DE COEFICIENTES DE VARIACIÓN ===")
+print(paste("CV Espacial:", round(cv_predicciones_1_EN, 2), "%"))
+print(paste("CV Convencional:", round(cv_predicciones_2_EN, 2), "%"))
+
+diferencia_cv <- cv_predicciones_1_EN - cv_predicciones_2_EN
+print(paste("Diferencia en CV:", round(diferencia_cv, 2), "puntos porcentuales"))
+
+if(abs(diferencia_cv) < 0.5) {
+  print("Ambos modelos tienen variabilidad similar")
+} else if(cv_predicciones_1_EN < cv_predicciones_2_EN) {
+  print("El modelo espacial tiene predicciones más consistentes")
+} else {
+  print("El modelo convencional tiene predicciones más consistentes")
+}
+
+#3. Visualización comparativa de distribuciones
+library(ggplot2)
+
+# Combinar datos para visualización
+predicciones_combinadas <- bind_rows(
+  prediccion_1_EN %>% mutate(Modelo = "CV Espacial"),
+  prediccion_2_EN %>% mutate(Modelo = "CV Convencional")
+)
+
+# Histograma comparativo
+ggplot(predicciones_combinadas, aes(x = .pred/1000000, fill = Modelo)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  labs(title = "Comparación de Distribuciones de Predicciones",
+       subtitle = "CV Espacial vs CV Convencional",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "top"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),
+    breaks = scales::pretty_breaks(n = 8)
+  )
+
+# Boxplot comparativo
+ggplot(predicciones_combinadas, aes(x = Modelo, y = .pred/1000000, fill = Modelo)) +
+  geom_boxplot(alpha = 0.7, width = 0.6) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, color = "red") +
+  labs(title = "Comparación de Predicciones por Modelo",
+       subtitle = "El rombo rojo indica la media",
+       x = "Modelo",
+       y = "Precio predicho (Millones de Pesos)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral")) +
+  scale_y_continuous(labels = scales::comma_format(accuracy = 0.1))
+
+#4. Comparación por tipo de propiedad
+print("=== ANÁLISIS POR TIPO DE PROPIEDAD ===")
+
+# Corregir nombres de variables (parecía haber un error en el código original)
+analisis_segmentos_1_EN <- test_1_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_1_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100,
+    .groups = 'drop'
+  ) %>%
+  mutate(Modelo = "CV Espacial")
+
+analisis_segmentos_2_EN <- test_2_EN %>%
+  select(property_type) %>%
+  bind_cols(prediccion_2_EN) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cv = (sd(.pred) / mean(.pred)) * 100,
+    .groups = 'drop'
+  ) %>%
+  mutate(Modelo = "CV Convencional")
+
+# Combinar análisis por segmentos
+analisis_completo <- bind_rows(analisis_segmentos_1_EN, analisis_segmentos_2_EN)
+
+print("Análisis por tipo de propiedad:")
+print(analisis_completo)
+
+# Visualización por tipo de propiedad
+ggplot(analisis_completo, aes(x = property_type, y = media/1000000, fill = Modelo)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_text(aes(label = paste(round(media/1000000, 1), "M")), 
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Predicciones Promedio por Tipo de Propiedad",
+       x = "Tipo de Propiedad",
+       y = "Precio Promedio (Millones de Pesos)",
+       fill = "Modelo") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "top"
+  ) +
+  scale_fill_manual(values = c("CV Espacial" = "skyblue", "CV Convencional" = "lightcoral"))
+
+#5. Correlación entre predicciones de ambos modelos
+correlacion <- cor(prediccion_1_EN$.pred, prediccion_2_EN$.pred)
+print(paste("Correlación entre predicciones:", round(correlacion, 4)))
+
+# Gráfico de dispersión
+data_correlacion <- data.frame(
+  Espacial = prediccion_1_EN$.pred / 1000000,
+  Convencional = prediccion_2_EN$.pred / 1000000
+)
+
+ggplot(data_correlacion, aes(x = Espacial, y = Convencional)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "lm", color = "red", linetype = "dashed") +
+  geom_abline(slope = 1, intercept = 0, color = "gray", linetype = "dotted") +
+  labs(title = paste("Correlación entre Predicciones (r =", round(correlacion, 3), ")"),
+       x = "CV Espacial (Millones de Pesos)",
+       y = "CV Convencional (Millones de Pesos)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+#6. Resumen final
+print("=== RESUMEN COMPARATIVO ===")
+print(paste("Diferencia promedio en predicciones:", 
+            format(round(mean(prediccion_1_EN$.pred) - mean(prediccion_2_EN$.pred), 0), big.mark = ",")))
+
+if(cv_predicciones_1_EN < cv_predicciones_2_EN) {
+  print("GANADOR EN CONSISTENCIA: CV Espacial (menor CV)")
+} else {
+  print("GANADOR EN CONSISTENCIA: CV Convencional (menor CV)")
+}
+
+print(paste("Correlación alta (", round(correlacion, 3), ") indica que ambos modelos hacen predicciones similares"))
+```
+
+
+## 2.2 CARTs
 
 ### 2.2.1 Entrenamiento tradicional 
 ```{r}
@@ -1247,25 +1755,23 @@ modelo_final_CART <- fit(final_workflow_CART, data = train_1_EN)
 
 ```
 
-### 2.2.2 Predicción
-
+### 2.2.2 Predicción ---REVISAR----
 ```{r}
 
 # Realizar predicciones con el modelo final
-predicciones_CART <- predict(modelo_final_CART, new_data = test_EN)
+predicciones_CART <- predict(modelo_final_CART, new_data = test_1_EN)
 
 # Combinar property_id con las predicciones
-pred_CART2 <- test_EN %>%
+pred_CART2 <- test_1_EN %>%
   select(property_id) %>%
   bind_cols(predicciones_CART) %>%
   rename(price = .pred)
 
-head(resultado_CART)
+head(pred_CART2)
 
 ```
 
 ### 2.2.3 Template Kaggle
-
 ```{r}
 # Descargar archivo
 write.csv(pred_CART1,
@@ -1280,7 +1786,6 @@ write.csv(pred_CART2,
 ## 2.3 Random Forest
 
 ### 2.3.1 Entrenamiento tradicional
-
 ```{r}
 # Control de entrenamiento con out-of-bag (OOB)
 fitControl <- trainControl(method = "oob")
@@ -1312,7 +1817,6 @@ varImp(model_forest)
 ```
 
 ### 2.3.2 Predicción
-
 ```{r}
 # Alinear niveles de factores
 for (var in cols_factor) {
@@ -1335,7 +1839,7 @@ pred_train <- predict(model_forest, newdata = train_factors)
 
 # Calcular MAE en entrenamiento
 MAE_train <- mean(abs(train_factors$price - pred_train))
-print(MAE_train)
+print(paste("MAE en entrenamiento:", round(MAE_train,2)))
 
 ```
 
@@ -1445,7 +1949,6 @@ write.csv(resultados_2_RF,
 ## 2.4 Boosting
 
 ### 2.4.1 Entrenamiento CV tradicional
-
 ```{r}
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
@@ -1479,7 +1982,6 @@ modelo_xgb <- train(
 ```
 
 ### 2.4.2 Predicción CV tradicional
-
 ```{r}
 # Igualar niveles de factores entre train y test
 for (col in cols_factor) {
@@ -1501,7 +2003,6 @@ pred_boosting1 <- resultados_prediccion_boosting %>%
 ```
 
 ### 2.4.1 Entrenamiento CV Espacial
-
 ```{r}
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
@@ -1606,37 +2107,704 @@ write.csv(pred_boosting2,
 
 ### 2.5.1 Entrenamiento
 
+Modeo 1
 ```{r}
+p_load( rio, ## read datasets
+        tidyverse, # manipular dataframes
+        tidymodels, #modelos de ML, colección de 8  librerías
+        nnet, # redes neuronales de una sola capa
+        workflows,
+        yardstick,
+        recipes,
+        tune
+        ) 
+
+# Receta del procesamiento
+recipe_nnet <- recipes::recipe(
+  formula_modelo  , data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%   # para las clases no antes vistas en el train. 
+  step_dummy(all_nominal_predictors()) %>%  # crea dummies para las variables categóricas
+  step_zv(all_predictors()) %>%   #  elimina predictores con varianza cero (constantes)
+  step_normalize(all_predictors())  # normaliza los predictores. 
+
+# Definición del modelo con hiperparámetros tuneables
+nnet_base <- mlp(
+  hidden_units = 10,   
+  epochs = 50,        
+  penalty = 0.01) %>%
+  set_mode("regression") %>%
+  set_engine("nnet")
+
+nnet_base
+
+# Flujo de trabajo
+workflow_base <- workflow() %>% 
+  add_recipe(recipe_nnet) %>%
+  add_model(nnet_base) 
+
+# Validación cruzada
+set.seed(143)
+cv_folds <- vfold_cv(train_factors, v = 5)
+
+# Grilla de hiperparámetros
+
+grid_nnet <- grid_regular(
+  hidden_units(range = c(3, 20)),
+  epochs(range = c(50, 200)),
+  levels = 5
+)
+
+# Entrenar con validación cruzada (sin tuning)
+resamples_fit <- fit_resamples(
+  workflow_base,
+  resamples = cv_folds,
+  metrics = metric_set(mae, rmse),
+  control = control_resamples(save_pred = TRUE)
+)
+
+# Ver métricas promedio
+collect_metrics(resamples_fit)
+
+# Ajuste final sobre todos los datos
+final_fit <- fit(workflow_base, data = train_factors)
 
 ```
 
+Modeo 2 - cv tradicional
+
+```{r}
+# _______________________________________________________________
+# Cargar paquetes
+p_load(
+  tidyverse,
+  tidymodels,
+  keras,
+  recipes,
+  rsample,
+  yardstick
+)
+
+# Crear receta
+receta <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%  # Agrupa categorías poco frecuentes
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep <- prep(receta)
+
+
+# Obtener datos procesados
+x <- bake(receta_prep, new_data = NULL) %>%
+  select(-price) %>%
+  as.matrix()
+
+y <- bake(receta_prep, new_data = NULL) %>%
+  pull(price)
+
+# función para crear modelo con keras
+rn_model <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)  # salida continua para regresión
+}
+
+# Crear folds de validación cruzada
+set.seed(123)
+folds_rn <- vfold_cv(data.frame(x), v = 5)
+
+# Lista para almacenar resultados
+resultados_rn <- list()
+
+for (i in seq_along(folds_rn$splits)) {
+  cat("Fold", i, "\n")
+  
+  split <- folds_rn$splits[[i]]
+  
+  # Entrenamiento
+  x_train <- analysis(split)
+  y_train <- y[as.integer(split$in_id)]
+  
+  # Validación
+  x_val <- assessment(split)
+  y_val <- y[-as.integer(split$in_id)]
+  
+  # Crear modelo
+  model <- rn_model(input_shape = ncol(x_train))
+  
+  model %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model %>% fit(
+    x = as.matrix(x_train), y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(as.matrix(x_val), y_val),
+    verbose = 0
+  )
+  
+  # Evaluar en fold
+  scores <- model %>% evaluate(as.matrix(x_val), y_val, verbose = 0)
+  resultados_rn[[i]] <- scores  <- scores
+}
+
+# Resultados de los folds
+t_fold_rn <- map_dfr(resultados_rn, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+#t_fold_rn <- map_dfr(result_fold_rn, ~as_tibble_row(.x)) %>%
+ # rename(mse = loss, mae = mean_absolute_error)
+
+t_fold_rn %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+
+# Entrenar el modelo final
+modelo_rn2 <- rn_model(ncol(x))
+modelo_rn2 %>% compile(
+  loss = "mse",
+  optimizer = optimizer_rmsprop(),
+  metrics = list("mean_absolute_error")
+)
+
+history_final <- modelo_rn2 %>% fit(
+  x = x,
+  y = y,
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2
+)
+plot(history_final)
+
+
+
+```
+
+modelo 3 - cv espacial
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# Unir train y test para asignar zonas consistentes
+data_geo <- bind_rows(train_factors %>% select(lat, lon),
+                      test_rn %>% select(lat, lon))
+
+# K-means con 5 zonas (podés ajustar 'centros')
+set.seed(123)
+zonas <- kmeans(data_geo, centers = 5)
+
+# Añadir zona al dataset
+train_factors$zona <- zonas$cluster[1:nrow(train_factors)]
+test_rn$zona <- zonas$cluster[(nrow(train_factors)+1):nrow(data_geo)]
+
+# Crear receta
+receta3 <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep3 <- prep(receta3)
+
+# Preprocesar datos
+procesado3 <- bake(receta_prep3, new_data = NULL)
+
+x3 <- procesado3 %>% select(-price) %>% as.matrix()
+y3 <- procesado3$price
+
+# Añadir columna espacial para agrupar (ej. zona)
+procesado3$zona <- train_factors$zona  # Asegurate que `zona` esté en tu data
+
+# Crear folds de validación cruzada espacial
+set.seed(123)
+folds_espaciales3 <- group_vfold_cv(procesado3, group = zona, v = 5)
+
+# Función para crear modelo
+rn_model3 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# Lista para resultados
+resultados_espaciales <- list()
+
+for (i in seq_along(folds_espaciales3$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split <- folds_espaciales3$splits[[i]]
+  
+  data_train <- analysis(split)
+  data_val <- assessment(split)
+  
+  x_train <- data_train %>% select(-price, -zona) %>% as.matrix()
+  y_train <- data_train$price
+  
+  x_val <- data_val %>% select(-price, -zona) %>% as.matrix()
+  y_val <- data_val$price
+  
+  # Crear y compilar modelo
+  model_rn3 <- rn_model3(ncol(x_train))
+  model_rn3 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model_rn3 %>% fit(
+    x = x_train, y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val, y_val),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores3 <- model_rn3 %>% evaluate(x_val, y_val, verbose = 0)
+  resultados_espaciales[[i]] <- scores3
+}
+
+plot(history)
+# Tabla de resultados
+t_espacial <- map_dfr(resultados_espaciales, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# Promedios
+t_espacial %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+
+modelo 4 - cv espacial (cambio de zonas y log price)
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo4 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas4 <- kmeans(data_geo4, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona4 <- zonas4$cluster[1:nrow(train_factors)]
+test$zona4 <- zonas4$cluster[(nrow(train_factors)+1):nrow(data_geo4)]
+
+# 4. Crear receta con log(price)
+train_log <- train_factors %>%
+  mutate(price = log(price + 1))  # equivalente a step_log(price, offset = 1)
+
+
+receta4 <- recipe(price ~ ., data = train_log) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 5. Preparar receta
+receta_prep4 <- prep(receta4)
+
+# 6. Preprocesar datos
+procesado4 <- bake(receta_prep4, new_data = NULL)
+
+# 7. Matrices de entrada
+x4 <- procesado4 %>% select(-price) %>% as.matrix()
+y4 <- procesado4$price
+
+# 8. Añadir columna de zona para agrupamiento
+procesado4$zona4 <- train_factors$zona4
+
+# 9. Crear folds espaciales
+set.seed(123)
+folds_espaciales4 <- group_vfold_cv(procesado4, group = zona4, v = 5)
+
+# 10. Función para crear modelo
+rn_model4 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 11. Lista para resultados
+resultados_espaciales4 <- list()
+
+# 12. Entrenamiento con validación cruzada espacial
+for (i in seq_along(folds_espaciales4$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split4 <- folds_espaciales4$splits[[i]]
+  
+  data_train4 <- analysis(split4)
+  data_val4 <- assessment(split4)
+  
+  x_train4 <- data_train4 %>% select(-price, -zona4) %>% as.matrix()
+  y_train4 <- data_train4$price
+  
+  x_val4 <- data_val4 %>% select(-price, -zona4) %>% as.matrix()
+  y_val4 <- data_val4$price
+  
+  # Crear y compilar modelo
+  model_rn4 <- rn_model4(ncol(x_train4))
+  model_rn4 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history4 <- model_rn4 %>% fit(
+    x = x_train4, y = y_train4,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val4, y_val4),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores4 <- model_rn4 %>% evaluate(x_val4, y_val4, verbose = 0)
+  resultados_espaciales4[[i]] <- scores4
+}
+
+
+# 13. Plot del último fold
+plot(history4)
+
+# 14. Tabla de resultados
+t_espacial4 <- map_dfr(resultados_espaciales4, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 15. Promedios y desviaciones
+t_espacial4 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+Modelo 5 - cv espacial log price
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo5 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas5 <- kmeans(data_geo5, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona5 <- zonas5$cluster[1:nrow(train_factors)]
+test$zona5 <- zonas5$cluster[(nrow(train_factors)+1):nrow(data_geo5)]
+
+# 4. Log-transformar price
+train_log5 <- train_factors %>%
+  mutate(price = log(price + 1))
+
+# 5. Crear receta
+receta5 <- recipe(price ~ ., data = train_log5) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 6. Preparar receta
+receta_prep5 <- prep(receta5)
+procesado5 <- bake(receta_prep5, new_data = NULL)
+
+# 7. Matrices
+x5 <- procesado5 %>% select(-price) %>% as.matrix()
+y5 <- procesado5$price
+procesado5$zona5 <- train_factors$zona5
+
+# 8. Folds espaciales
+set.seed(123)
+folds_espaciales5 <- group_vfold_cv(procesado5, group = zona5, v = 5)
+
+# 9. Modelo
+rn_model5 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.4) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 10. Entrenamiento con validación cruzada
+resultados_espaciales5 <- list()
+
+for (i in seq_along(folds_espaciales5$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split5 <- folds_espaciales5$splits[[i]]
+  data_train5 <- analysis(split5)
+  data_val5 <- assessment(split5)
+  
+  x_train5 <- data_train5 %>% select(-price, -zona5) %>% as.matrix()
+  y_train5 <- data_train5$price
+  
+  x_val5 <- data_val5 %>% select(-price, -zona5) %>% as.matrix()
+  y_val5 <- data_val5$price
+  
+  model_rn5 <- rn_model5(ncol(x_train5))
+  model_rn5 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  history5 <- model_rn5 %>% fit(
+    x = x_train5, y = y_train5,
+    epochs = 30, batch_size = 32,
+    validation_data = list(x_val5, y_val5),
+    verbose = 0
+  )
+  
+  scores5 <- model_rn5 %>% evaluate(x_val5, y_val5, verbose = 0)
+  resultados_espaciales5[[i]] <- scores5
+}
+
+# 11. Gráfico
+plot(history5)
+
+# 12. Resultados por fold
+t_espacial5 <- map_dfr(resultados_espaciales5, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 13. Resumen
+t_espacial5 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+
 ### 2.5.2 Predicción
+
+modelo 1
 
 ```{r}
 
+# Predecir sobre los datos de test (sin price)
+pred_rn1 <- predict(final_fit, new_data = test_rn)
+
+resultado_rn1 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn1$.pred)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn1 <- sd(resultado_rn1$.pred) / mean(resultado_rn1$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn1, 2)))
+
+# Análisis por segmento
+seg_rn1 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cof_var = round((sd(.pred) / mean(.pred)) * 100, 2)
+  )
+
+print(seg_rn1)
+
+# Outliers en predicciones
+umbral_superior_rn1 <- quantile(resultado_rn1$.pred, 0.975)
+umbral_inferior_rn1 <- quantile(resultado_rn1$.pred, 0.025)
+
+outliers_rn1 <- resultado_rn1 %>%
+  filter(.pred > umbral_superior_rn1 | .pred < umbral_inferior_rn1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn1)))
+```
+
+Modelo 2
+
+```{r}
+# Preprocesar test
+test_rn <- test %>%
+  left_join(test_aptos %>% select(property_id, lat, lon), by = "property_id")
+
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn2 <- modelo_rn2 %>% predict(x_test)
+
+resultado_rn2 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn2$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn2 <- sd(resultado_rn2$price) / mean(resultado_rn2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn2, 2)))
+
+# Análisis por segmento
+seg_rn2 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn2)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn2)
+
+# Outliers en predicciones
+umbral_superior_rn2 <- quantile(resultado_rn2$.pred, 0.975)
+umbral_inferior_rn2 <- quantile(resultado_rn2$.pred, 0.025)
+
+outliers_rn2 <- resultado_rn2 %>%
+  filter(price > umbral_superior_rn2 | price < umbral_inferior_rn2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn2)))
+```
+
+Modelo 3
+
+```{r}
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn3 <- model_rn3 %>% predict(x_test)
+
+resultado_rn3 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn3))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn3$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn3 <- sd(resultado_rn3$price) / mean(resultado_rn3$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn3, 2)))
+
+# Análisis por segmento
+seg_rn3 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn3)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn3)
+
+# Outliers en predicciones
+umbral_superior_rn3 <- quantile(resultado_rn3$price, 0.975)
+umbral_inferior_rn3 <- quantile(resultado_rn3$price, 0.025)
+
+outliers_rn3 <- resultado_rn3 %>%
+  filter(price > umbral_superior_rn3 | price < umbral_inferior_rn3)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
 ```
 
 ### 2.5.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
-write.csv(pred_rneuronales1,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES1.csv", row.names = FALSE, 
-          quote = FALSE)
+write.csv(resultado_rn2,
+          "../03_Stores/24-05_G4_RedNeuronal1.csv", row.names = FALSE, 
+          quote = FALSE)# cv tradicional
 
-write.csv(pred_rneuronales2,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_rneuronales3,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES3.csv", row.names = FALSE, 
-          quote = FALSE)
-```
-
-## 2.6 Super Learners
-
-```{r}
-
+write.csv(resultado_rn3,
+          "../03_Stores/24-05_G4_RedNeuronal2.csv", row.names = FALSE, 
+          quote = FALSE) # cv espacial
 ```
 
 ## 2.7 Regresión lineal
@@ -1975,6 +3143,99 @@ outliers_lm3 <- resultado_lm3 %>%
 print(paste("Número de outliers en predicciones:", nrow(outliers_lm3)))
 ```
 
+Modeo 4: mejorar modelo considerando correlación espacial para evitar sobreajuste.
+
+```{r}
+# Agregar lat y lon a train_factors_lm 
+train_factors_lm <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator,
+    lat,
+    lon  # agregar lat y lon aquí
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Variables para el modelo (añadiendo lat y lon)
+pred_var_lm_4 <- c(
+  'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator',
+  'lat',
+  'lon'
+)
+
+test_lm_input <- test_aptos %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator, 
+    lat,
+    lon
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+
+# Crear fórmula con lat y lon
+variables_lm_4 <- paste(pred_var_lm_4, collapse = " + ")
+formula_lm_4 <- as.formula(paste("price ~", variables_lm_4))
+
+# Ajustar modelo lineal
+modelo_lm4 <- lm(formula_lm_4, data = train_factors_lm)
+summary(modelo_lm4)
+
+modelo_lm5 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator + rooms + lat + lon, data = train_factors_lm)
+summary(modelo_lm5)
+
+```
+
 
 Modelos log lin:
 
@@ -2091,5 +3352,8 @@ write.csv(resultado_lm3,
 
 ```
 
+## 2.6 Super Learners
 
+```{r}
 
+```
