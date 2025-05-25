@@ -840,13 +840,14 @@ test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```{r}
 # Variables categóricas a convertir en factor
 cols_factor <- c(
+  'year',
   'property_type',
   'binaria_parking',
   'binaria_terrace',
   'binaria_gym',
   'binaria_laundry',
   'binaria_elevator'
-)
+)##OK
 
 # Filtrar y preparar datos
 train_factors <- train_localidades %>%
@@ -868,7 +869,9 @@ train_factors <- train_localidades %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
   as.data.frame()
@@ -895,6 +898,7 @@ variables_predictoras <- c(
   'binaria_laundry',
   'binaria_elevator'
 )
+
 # Definir fórmula del modelo
 variables <- paste(variables_predictoras, collapse = " + ")
 formula_modelo <- as.formula(paste("price ~", variables))
@@ -915,7 +919,7 @@ cols_factor <- c(
   'binaria_elevator'
 )
 
-# Preprocesamiento test
+# Conservar test con `price` para evaluación posterior
 test <- test_aptos %>%
   select(
     property_id,
@@ -934,10 +938,14 @@ test <- test_aptos %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
+  na.omit() %>%
   as.data.frame()
+
 ```
 
 # 2. Entrenamiento de modelos
@@ -949,7 +957,7 @@ test <- test_aptos %>%
 ```{r}
 #1. Eliminar variables innecesarias
 train_1_EN <- train_factors %>%
-  select(-property_id)
+  select(-property_id, -lat, -lon) #Quitar property_id y lat, lon
 
 #2. Crear la receta del entranamiento
 # Cargar explícitamente el paquete recipes
@@ -1072,7 +1080,7 @@ prediccion_1_EN <- predict(final_model_1, new_data = test_1_EN)
 
 resultado_EN_1 <- test_1_EN %>%
   select(property_id) %>%
-  bind_cols(prediccion_EN)%>%
+  bind_cols(prediccion_1_EN)%>%
   rename(price = .pred)
 
 head(resultado_EN_1)
@@ -1110,7 +1118,7 @@ analisis_segmentos_1_EN <- test_1_EN %>%
     cv = (sd(.pred) / mean(.pred)) * 100
   )
 
-print(analisis_segmentos)
+print(analisis_segmentos_1_EN)
 
 #7. Identificar posibles valores atípicos
 umbral_superior_1 <- quantile(prediccion_1_EN$.pred, 0.975)
@@ -1139,7 +1147,7 @@ write.csv(resultado_EN_1,
 ```{r}
 #1. Eliminar variables innecesarias
 train_2_EN <- train_factors %>%
-  select(-property_id)
+  select(-property_id, -lat, -lon) #Quitar property_id y lat, lon
 
 #2. Crear la receta del entranamiento
 # Cargar explícitamente el paquete recipes
@@ -1267,7 +1275,7 @@ prediccion_2_EN <- predict(final_model_2, new_data = test_2_EN)
 
 resultado_EN_2 <- test_2_EN %>%
   select(property_id) %>%
-  bind_cols(prediccion_EN)%>%
+  bind_cols(prediccion_2_EN)%>%
   rename(price = .pred)
 
 head(resultado_EN_2)
@@ -1305,7 +1313,7 @@ analisis_segmentos_2_EN <- test_2_EN %>%
     cv = (sd(.pred) / mean(.pred)) * 100
   )
 
-print(analisis_segmentos)
+print(analisis_segmentos_2_EN)
 
 #7. Identificar posibles valores atípicos
 umbral_superior_2 <- quantile(prediccion_2_EN$.pred, 0.975)
@@ -1747,19 +1755,19 @@ modelo_final_CART <- fit(final_workflow_CART, data = train_1_EN)
 
 ```
 
-### 2.2.2 Predicción
+### 2.2.2 Predicción ---REVISAR----
 ```{r}
 
 # Realizar predicciones con el modelo final
-predicciones_CART <- predict(modelo_final_CART, new_data = test_EN)
+predicciones_CART <- predict(modelo_final_CART, new_data = test_1_EN)
 
 # Combinar property_id con las predicciones
-pred_CART2 <- test_EN %>%
+pred_CART2 <- test_1_EN %>%
   select(property_id) %>%
   bind_cols(predicciones_CART) %>%
   rename(price = .pred)
 
-head(resultado_CART)
+head(pred_CART2)
 
 ```
 
@@ -1831,7 +1839,7 @@ pred_train <- predict(model_forest, newdata = train_factors)
 
 # Calcular MAE en entrenamiento
 MAE_train <- mean(abs(train_factors$price - pred_train))
-print(MAE_train)
+print(paste("MAE en entrenamiento:", round(MAE_train,2)))
 
 ```
 
