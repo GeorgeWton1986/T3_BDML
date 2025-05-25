@@ -1739,7 +1739,6 @@ modelo_final_CART <- fit(final_workflow_CART, data = train_1_EN)
 ```
 
 ### 2.2.2 Predicción
-
 ```{r}
 
 # Realizar predicciones con el modelo final
@@ -1756,7 +1755,6 @@ head(resultado_CART)
 ```
 
 ### 2.2.3 Template Kaggle
-
 ```{r}
 # Descargar archivo
 write.csv(pred_CART1,
@@ -1771,7 +1769,6 @@ write.csv(pred_CART2,
 ## 2.3 Random Forest
 
 ### 2.3.1 Entrenamiento tradicional
-
 ```{r}
 # Control de entrenamiento con out-of-bag (OOB)
 fitControl <- trainControl(method = "oob")
@@ -1803,7 +1800,6 @@ varImp(model_forest)
 ```
 
 ### 2.3.2 Predicción
-
 ```{r}
 # Alinear niveles de factores
 for (var in cols_factor) {
@@ -1936,7 +1932,6 @@ write.csv(resultados_2_RF,
 ## 2.4 Boosting
 
 ### 2.4.1 Entrenamiento CV tradicional
-
 ```{r}
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
@@ -1970,7 +1965,6 @@ modelo_xgb <- train(
 ```
 
 ### 2.4.2 Predicción CV tradicional
-
 ```{r}
 # Igualar niveles de factores entre train y test
 for (col in cols_factor) {
@@ -1992,7 +1986,6 @@ pred_boosting1 <- resultados_prediccion_boosting %>%
 ```
 
 ### 2.4.1 Entrenamiento CV Espacial
-
 ```{r}
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
@@ -2797,12 +2790,6 @@ write.csv(resultado_rn3,
           quote = FALSE) # cv espacial
 ```
 
-## 2.6 Super Learners
-
-```{r}
-
-```
-
 ## 2.7 Regresión lineal
 
 Ajuste de base de datos train y test
@@ -3348,5 +3335,8 @@ write.csv(resultado_lm3,
 
 ```
 
+## 2.6 Super Learners
 
+```{r}
 
+```
