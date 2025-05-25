@@ -344,7 +344,7 @@ train_localidades <- left_join(train_localidades, dummies_df, by = "property_id"
 
 ```
 
-1)  Identificar distancia a Mall(revisarlo porque no carga)
+1)  Identificar distancia a Mall
 
 ```{r}
 # Obtener los límites de Bogotá
@@ -929,9 +929,9 @@ test <- test_aptos %>%
 
 # 2. Entrenamiento de modelos
 
-## 2.1 Elastic net
+## 2.1.A Elastic net CV Espacial
 
-### 2.1.1 Entrenamiento
+### 2.1.1.A Entrenamiento
 
 ```{r}
 #1. Eliminar variables innecesarias
@@ -954,7 +954,7 @@ modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 #Penalty: lambda que controla la regularización
 #Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
-grid_elastic <- grid_regular(
+grid_elastic_1 <- grid_regular(
   penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
   mixture(range = c(0, 1)),                          # Explorar de 0 a 1
   levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
@@ -992,7 +992,7 @@ walk(block_folds_EN$splits, function(x) print(autoplot(x)))
 resultados_1_EN <- workflow_1_EN %>%
   tune_grid(
     resamples = block_folds_EN,
-    grid = grid_elastic,
+    grid = grid_elastic_1,
     metrics = metric_set(mae),
     control = control_grid(verbose = TRUE)
   )
@@ -1006,7 +1006,7 @@ collect_metrics(resultados_1_EN)
 show_best(resultados_1_EN, metric = "mae", n = 5)
 
 #14. Seleccionar los mejores hiperparámetros
-best_params <- select_best(resultados_1_EN, metric = "mae")
+best_params_1 <- select_best(resultados_1_EN, metric = "mae")
 print(best_params)
 
 #15. Finalizar el modelo con los mejores parámetros
@@ -1015,33 +1015,33 @@ print(best_params)
 #La función finalize_workflow() sustituye los placeholders tune() por los valores específicos de best_params.
 #Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
 #Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
-final_workflow <- workflow_1_EN %>%
+final_workflow_1 <- workflow_1_EN %>%
   finalize_workflow(best_params)
 
 #16. Entrenar el modelo final con todos los datos
-final_model <- fit(final_workflow, data = train_1_EN)
+final_model_1 <- fit(final_workflow_1, data = train_1_EN)
 
 #17. Analizar los coeficientes del modelo
 # Ver todos los coeficientes (ordenados por magnitud)
 library(broom)
-coeficientes <- tidy(final_model) %>%
+coeficientes_1 <- tidy(final_model_1) %>%
   filter(term != "(Intercept)") %>%
   arrange(desc(abs(estimate)))
 
 #18. Ver los coeficientes más importantes
-head(coeficientes, 10)
+head(coeficientes_1, 10)
 
 #19. Ver la importancia de las variables
 library(vip)
-vip(extract_fit_parsnip(final_model), num_features = 20)
+vip(extract_fit_parsnip(final_model_1), num_features = 20)
 
 #20. Calcular el coeficiente de variación de los precios reales
-cv_precios_reales <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
-print(paste("CV de los precios reales (%):", round(cv_precios_reales, 2)))
+cv_precios_reales_1 <- sd(train_1_EN$price) / mean(train_1_EN$price) * 100
+print(paste("CV de los precios reales (%):", round(cv_precios_reales_1, 2)))
 
 ```
 
-### 2.1.2 Predicción
+### 2.1.2.A Predicción
 
 ```{r}
 #1. Tomar la base de test y prepararla para la predicción
@@ -1110,7 +1110,7 @@ print(paste("Número de outliers en predicciones:", nrow(outliers)))
 
 ```
 
-### 2.1.3 Template Kaggle
+### 2.1.3.A Template Kaggle
 
 ```{r}
 # Descargar archivo
@@ -1126,6 +1126,119 @@ write.csv(pred_EN_3,
           "C:/../03_Stores/10-04_G4_EN3.csv", row.names = FALSE, 
           quote = FALSE)
 ```
+## 2.1.B Elastic net CV Convencional
+
+### 2.1.1.B Entrenamiento
+
+```{r}
+#1. Eliminar variables innecesarias
+train_2_EN <- train_factors %>%
+  select(-property_id)
+
+#2. Crear la receta del entranamiento
+# Cargar explícitamente el paquete recipes
+receta_2_EN <- recipe(price ~ ., data = train_2_EN) %>%
+  step_normalize(distancia_cai, distancia_mall, distancia_bus, distancia_avenida) %>% #normalizar solo predictores numéricos (distancias)
+  step_dummy(all_nominal_predictors()) %>% ## Convertir variables categóricas a dummies
+  step_zv(all_predictors()) #Remover predictores con varianza cero
+
+#3. Definir el modelo
+modelo_2_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet") 
+
+#4. Especificar los paramatros alpha y lambda EN
+#Estamos creando la cuadricula de búsqueda para los hiperparámetros del modelo Elastric Net
+#Penalty: lambda que controla la regularización
+#Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
+
+grid_elastic_2 <- grid_regular(
+  penalty(range = c(-3, 0), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  mixture(range = c(0, 1)),                          # Explorar de 0 a 1
+  levels = c(10, 5)                                  # 10 niveles de penalty, 5 de mixture
+)
+
+#5. Crear un workflow (flujo de trabajo)
+
+workflow_2_EN <- workflow() %>%
+  add_recipe(receta_2_EN) %>%
+  add_model(modelo_2_EN)
+
+#6. Unir train_factors con train_localidades_sf por medio de property_id
+
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+#7. Estimacion de validacion cruzada espacial por bloques
+#Este metodo de VC por bloques permite:
+  #1. Mantener la independencia espacial entre los bloques
+  #2. Evitar el sobreajuste o estimaciones demasiado optimistas del rendimiento del modelo
+
+library(spatialsample)
+set.seed(123)
+block_folds_EN <- spatial_block_cv(train_espacial, v = 5)
+
+#8. Verificación visual de los bloques de la valiación cruzada
+autoplot(block_folds_EN)
+
+#9. Incluir la libreria purrr
+#Vamos a ver el proceso de la validacion cruzada 
+library(purrr)
+walk(block_folds_EN$splits, function(x) print(autoplot(x)))
+
+#10. Entrenamiento del modelo con validacion cruzada espacial
+resultados_2_EN <- workflow_2_EN %>%
+  tune_grid(
+    resamples = block_folds_EN,
+    grid = grid_elastic_2,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
+  )
+#11. Ver los resultados del modelo 1
+autoplot(resultados_2_EN)
+
+#12. Resultado del modelo 1
+collect_metrics(resultados_2_EN)
+
+#13. Mostrar los mejores resultados
+show_best(resultados_2_EN, metric = "mae", n = 5)
+
+#14. Seleccionar los mejores hiperparámetros
+best_params_2 <- select_best(resultados_2_EN, metric = "mae")
+print(best_params_2)
+
+#15. Finalizar el modelo con los mejores parámetros
+#Se realiza la implementación de los mejores parámetros en el workflow
+#¡¡¡IMPORTANTE!!!
+#La función finalize_workflow() sustituye los placeholders tune() por los valores específicos de best_params.
+#Ademas, reemplaza penalty = tune() y mixture = tune() por los valores numéricos que resultaron óptimos según el criterio de MAE.
+#Por lo tanto, final_workflow estan todos los parámetros especificados con valores estimados, listo para ser entrenado en el conjunto completo de datos.
+final_workflow_2 <- workflow_2_EN %>%
+  finalize_workflow(best_params_2)
+
+#16. Entrenar el modelo final con todos los datos
+final_model_2 <- fit(final_workflow_2, data = train_2_EN)
+
+#17. Analizar los coeficientes del modelo
+# Ver todos los coeficientes (ordenados por magnitud)
+library(broom)
+coeficientes_2 <- tidy(final_model_2) %>%
+  filter(term != "(Intercept)") %>%
+  arrange(desc(abs(estimate)))
+
+#18. Ver los coeficientes más importantes
+head(coeficientes_2, 10)
+
+#19. Ver la importancia de las variables
+library(vip)
+vip(extract_fit_parsnip(final_model_2), num_features = 20)
+
+#20. Calcular el coeficiente de variación de los precios reales
+cv_precios_reales_2 <- sd(train_2_EN$price) / mean(train_2_EN$price) * 100
+print(paste("CV de los precios reales (%):", round(cv_precios_reales_2, 2)))
+
+```
+
 
 ## 2.2 CARTs
 
