@@ -252,6 +252,28 @@ leaflet() %>%
              lat = train_aptos$lat)
 ```
 
+```{r}
+range_lon <- range(train_aptos$lon, na.rm = TRUE)
+range_lat <- range(train_aptos$lat, na.rm = TRUE)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
+  geom_sf(color = "blue", alpha = 0.6, size = 1.2) +
+  coord_sf(
+    xlim = c(min(train_aptos$lon), max(train_aptos$lon)),
+    ylim = c(min(train_aptos$lat), max(train_aptos$lat)),
+    expand = FALSE
+  ) +
+  labs(title = "Ubicación de apartamentos - Muestra de entrenamiento",
+       x = "Longitud", y = "Latitud") +
+  theme_minimal()
+
+```
+
+
 Carga de datos espaciales Identificar localidades sin Chapinero
 
 ```{r}
@@ -285,6 +307,18 @@ leaflet() %>%
   addCircles(lng = train_localidades$lon, 
              lat = train_localidades$lat)
 ```
+
+```{r}
+library(ggplot2)
+
+ggplot(train_localidades_sf) +
+  geom_sf(color = "blue", size = 1.5, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Puntos fuera de Chapinero en Bogotá",
+       x = "Longitud", y = "Latitud")
+```
+
+
 
 Variables en descripción; Tokenizar
 
@@ -1953,6 +1987,13 @@ write.csv(resultados_2_RF,
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
 
+# Función para usar MAE como métrica en caret
+maeSummary <- function(data, lev = NULL, model = NULL) {
+  out <- Metrics::mae(data$obs, data$pred)
+  names(out) <- "MAE"
+  out
+}
+
 # Definir grid
 grid_xgb <- expand.grid(
   nrounds = c(100, 250),
@@ -1964,8 +2005,12 @@ grid_xgb <- expand.grid(
   subsample = c(0.8)
 )
 
-# Control
-ctrl <- trainControl(method = "cv", number = 5)
+# Control con CV tradicional y MAE como métrica
+ctrl_mae <- trainControl(
+  method = "cv",
+  number = 5,
+  summaryFunction = maeSummary
+)
 
 # Entrenar
 set.seed(123)
@@ -1973,9 +2018,9 @@ modelo_xgb <- train(
   formula_modelo,
   data = train_factors,
   method = "xgbTree",
-  trControl = ctrl,
+  trControl = ctrl_mae,
   tuneGrid = grid_xgb,
-  metric = "RMSE",
+  metric = "MAE",
   verbosity = 0
 )
 
@@ -2002,7 +2047,7 @@ pred_boosting1 <- resultados_prediccion_boosting %>%
 
 ```
 
-### 2.4.1 Entrenamiento CV Espacial
+### 2.4.3 Entrenamiento CV Espacial
 ```{r}
 # Cargar paquetes
 pacman::p_load(caret, xgboost, Metrics)
@@ -2044,11 +2089,12 @@ indexOut <- lapply(block_folds_EN$splits, function(split) {
 })
 
 # Control
-ctrl_espacial <- trainControl(
+ctrl_espacial_mae <- trainControl(
   method = "cv",
   number = 5,
   index = index,
-  indexOut = indexOut
+  indexOut = indexOut,
+  summaryFunction = maeSummary
 )
 
 # Entrenar
@@ -2057,15 +2103,15 @@ modelo_xgb_espacial <- train(
   formula_modelo,
   data = train_factors,
   method = "xgbTree",
-  trControl = ctrl_espacial,
+  trControl = ctrl_espacial_mae,
   tuneGrid = grid_xgb,
-  metric = "RMSE",
+  metric = "MAE",
   verbosity = 0
 )
 
 ```
 
-### 2.4.2 Predicción CV tradicional
+### 2.4.4 Predicción CV tradicional
 
 ```{r}
 # Asegurar que las variables categóricas en test tengan los mismos niveles que en train_factors
@@ -2089,19 +2135,37 @@ pred_boosting2 <- resultados_prediccion_boosting_espacial %>%
 
 
 
-### 2.4.3 Template Kaggle
+### 2.4.5 Template Kaggle
 
 ```{r}
-# Descargar archivo
 write.csv(pred_boosting1,
-          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING1.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/25-05_BOOSTING1.csv", row.names = FALSE, 
           quote = FALSE)
 
 write.csv(pred_boosting2,
-          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING2.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/25-05_BOOSTING2.csv", row.names = FALSE, 
           quote = FALSE)
 
 ```
+
+### 2.4.6 Comparación modelos MAE
+
+```{r}
+# Extraer el menor MAE de cada modelo
+mae_trad_boosting <- min(modelo_xgb$results$MAE)
+mae_esp_boosting <- min(modelo_xgb_espacial$results$MAE)
+
+# Comparar en una tabla
+tabla_comparacion_mae <- data.frame(
+  Modelo = c("CV Tradicional", "CV Espacial"),
+  MAE = c(mae_trad_boosting, mae_esp_boosting)
+)
+
+print(tabla_comparacion_mae)
+
+```
+
+
 
 ## 2.5 Redes neuronales
 
@@ -3354,6 +3418,156 @@ write.csv(resultado_lm3,
 
 ## 2.6 Super Learners
 
+### 2.6.1 Entrenamiento CV tradicional
+
 ```{r}
+library(SuperLearner)
+library(xgboost)
+library(dplyr)
+
+# Selecciona las variables predictoras (sin property_id ni geometría)
+X_train <- train_factors %>% select(-property_id, -price)
+Y_train <- train_factors$price
+
+X_test <- test %>% select(-property_id)
+
+# Define la librería de modelos para SuperLearner
+sl.lib <- c("SL.lm", "SL.xgboost")
+
+set.seed(123)
+fit_SL <- SuperLearner(
+  Y = Y_train,
+  X = X_train,
+  SL.library = sl.lib,
+  method = "method.NNLS",
+  cvControl = list(V = 5)  # 5-fold CV simple
+)
+
+print(fit_SL)
 
 ```
+
+### 2.6.2 Predicción CV tradicional
+
+```{r}
+# Predicciones en test
+pred_sl <- predict(fit_SL, newdata = X_test, onlySL = TRUE)$pred
+
+# Guardar resultados con predicción del SuperLearner
+resultados_prediccion_superlearner <- test %>%
+  mutate(predicted_price_superlearner = pred_sl)
+
+# Preparar formato para Kaggle 
+pred_superlearner <- resultados_prediccion_superlearner %>%
+  select(property_id, predicted_price_superlearner) %>%
+  rename(price = predicted_price_superlearner)
+```
+
+### 2.6.3 Entrenamiento CV espacial
+
+```{r}
+library(SuperLearner)
+library(spatialsample)
+library(dplyr)
+
+# 1. Datos de entrada
+X_train <- train_factors %>% select(-property_id, -price)
+Y_train <- train_factors$price
+
+# 2. Crear folds espaciales 
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+set.seed(123)
+folds_spatial <- spatial_block_cv(train_espacial, v = 5)
+
+# 3. Extraer índices de los folds
+index <- lapply(folds_spatial$splits, function(split) {
+  analysis(split) %>% pull(property_id)
+})
+
+# 4. Convertir índices a posiciones en X_train
+index_list <- lapply(index, function(ids) {
+  which(train_factors$property_id %in% ids)
+})
+
+# 5. Entrenamiento del SuperLearner con folds espaciales
+set.seed(123)
+fit_SL_espacial <- SuperLearner(
+  Y = Y_train,
+  X = X_train,
+  SL.library = c("SL.lm", "SL.xgboost"),
+  method = "method.NNLS",
+  cvControl = list(V = 5, validRows = index_list)
+)
+
+```
+
+### 2.6.4 Predicción CV espacial
+
+```{r}
+# 1. Crear conjunto de predictores
+X_test <- test %>% select(-property_id)
+
+# 2. Generar predicciones
+pred_espacial <- predict(fit_SL_espacial, newdata = X_test, onlySL = TRUE)$pred
+
+# 3. Armar dataframe final con property_id y price
+pred_superlearner_espacial <- test %>%
+  select(property_id) %>%
+  mutate(price = pred_espacial)
+```
+
+### 2.6.5 Template Kaggle
+
+```{r}
+# Descargar archivo
+write.csv(pred_superlearner,
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/25-05_SUPERLEARNER1.csv", row.names = FALSE, 
+          quote = FALSE)
+
+write.csv(pred_superlearner_espacial,
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/25-05_SUPERLEARNER2.csv", row.names = FALSE, 
+          quote = FALSE)
+
+```
+
+### 2.6.6 Comparación mae
+
+```{r}
+mae <- function(actual, predicted) {
+  mean(abs(actual - predicted))
+}
+
+# Predicciones SuperLearner CV tradicional
+pred_train_tradicional <- predict(fit_SL, newdata = X_train, onlySL = TRUE)$pred
+
+# Predicciones SuperLearner CV espacial 
+pred_train_espacial <- predict(fit_SL_espacial, newdata = X_train, onlySL = TRUE)$pred
+
+# MAE en entrenamiento
+mae_tradicional <- mae(Y_train, pred_train_tradicional)
+mae_espacial <- mae(Y_train, pred_train_espacial)
+
+library(tibble)
+
+tibble(
+  Modelo = c("SuperLearner CV Tradicional", "SuperLearner CV Espacial"),
+  MAE = c(mae_tradicional, mae_espacial)
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
