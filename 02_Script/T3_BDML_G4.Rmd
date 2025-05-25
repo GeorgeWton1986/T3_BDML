@@ -42,7 +42,6 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        geosphere,   # Calcular distancias geográficas como Haversine
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
        spatialsample, # Muestreo espacial
-       vip
        )
 ```
 
@@ -253,8 +252,7 @@ leaflet() %>%
              lat = train_aptos$lat)
 ```
 
-Carga de datos espaciales
-Identificar localidades sin Chapinero
+Carga de datos espaciales Identificar localidades sin Chapinero
 
 ```{r}
 # Columas númericas
@@ -453,6 +451,7 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 
 ```
+
 Gráfico de distancia a los CAIS
 
 ```{r}
@@ -466,6 +465,7 @@ ggplot(train_localidades, aes(x = distancia_cai)) +
 # Guardar el gráfico
 ggsave("../04_Views/GRAFICO8C-DISTANCIACAI_RESTO.png", dpi = 150, width = 8, height = 6)
 ```
+
 3)  Identificar distancia hasta los paraderos de buses
 
 ```{r}
@@ -502,7 +502,6 @@ train_localidades <- train_localidades %>%
 head(train_localidades)
 
 ```
-
 
 Visualizar gráfico
 
@@ -574,7 +573,6 @@ if(!inherits(train_localidades, "sf")) {
 print(st_crs(train_localidades_sf))
 ```
 
-
 Visualizar gráfico
 
 ```{r}
@@ -624,7 +622,8 @@ test_aptos <- test_aptos  %>%
 skim(test_aptos)
 ```
 
-Seleccionar las viviendas de la localidad de Chapinero para Test 
+Seleccionar las viviendas de la localidad de Chapinero para Test
+
 ```{r}
 # Asegurarte de que lon y lat sean numéricos
 test_aptos <- test_aptos %>%
@@ -688,7 +687,7 @@ head(test_aptos)
 
 ```
 
-2) Distancia a CAI
+2)  Distancia a CAI
 
 ```{r}
 # Transformar test_chapinero a objeto sf si aún no está
@@ -837,6 +836,7 @@ test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
 
 ## 1.4 Convertir a factores base entrenamiento
+
 ```{r}
 # Variables categóricas a convertir en factor
 cols_factor <- c(
@@ -864,7 +864,9 @@ train_factors <- train_localidades %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
   as.data.frame()
@@ -880,7 +882,6 @@ variables_predictoras <- c(
   'distancia_mall',
   'distancia_bus',
   'distancia_avenida',
-  'precio_mt2',
   'binaria_parking',
   'binaria_terrace',
   'binaria_gym',
@@ -895,6 +896,7 @@ formula_modelo <- as.formula(paste("price ~", variables))
 ```
 
 Convertir a factores base test
+
 ```{r}
 # Las columnas estén en el mismo formato que en entrenamiento
 cols_factor <- c(
@@ -921,7 +923,9 @@ test <- test_aptos %>%
     binaria_terrace,
     binaria_gym,
     binaria_laundry,
-    binaria_elevator
+    binaria_elevator,
+    lat,
+    lon
   ) %>%
   mutate(across(all_of(cols_factor), as.factor)) %>%
   as.data.frame()
@@ -1242,9 +1246,117 @@ print(paste("CV de los precios reales (%):", round(cv_precios_reales_2, 2)))
 
 ## 2.2 CARTs
 
-### 2.2.1 Entrenamiento
+
+### 2.2.1 Entrenamiento tradicional 
+```{r}
+modelo_cart <- rpart(
+  formula = formula_modelo,
+  data = train_factors,
+  method = "anova"  # Regresión continua
+)
+
+# Visualizar el árbol
+rpart.plot(modelo_cart)
+
+```
+### 2.2.2 Predicción 
+```{r}
+# Predecir
+test$price <- predict(modelo_cart, newdata = test)
+
+# Seleccionar columnas en orden requerido
+pred_CART1 <- test %>%
+  select(property_id, price)
+```
 
 ```{r}
+# Predecir sobre entrenamiento 
+pred_train <- predict(modelo_cart, newdata = train_factors)
+
+# Calcular MAE
+mae_train <- mean(abs(train_factors$price - pred_train))
+print(paste("MAE en entrenamiento:", round(mae_train, 2)))
+
+```
+por revisar 
+```{r}
+# Predecir
+pred_test <- predict(modelo_cart, newdata = test)
+
+library(rpart)
+
+# Entrenar modelo CART con train_factors y fórmula definida
+modelo_cart <- rpart(formula_modelo, data = train_factors)
+
+# Predecir en test (que sí tiene columna price)
+pred_test <- predict(modelo_cart, newdata = test)
+
+# Calcular MAE ignorando NAs si hay
+mae_test <- mean(abs(test$price - pred_test), na.rm = TRUE)
+print(paste("MAE en test:", round(mae_test, 2)))
+
+
+```
+
+### 2.2.2 Entrenamiento Espacial
+```{r}
+library(recipes)
+library(parsnip)
+library(workflows)
+library(tune)
+library(spatialsample)
+library(dplyr)
+
+# 1. Receta de preprocesamiento
+receta_CART <- recipe(price ~ ., data = train_1_EN) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
+
+# 2. Definir modelo CART con parámetros a tunear
+modelo_CART <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+) %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
+
+# 3. Grid de búsqueda para hiperparámetros
+grid_CART <- grid_regular(
+  cost_complexity(range = c(-4, -1), trans = log10_trans()),
+  tree_depth(range = c(3, 10)),
+  min_n(range = c(2, 10)),
+  levels = c(4, 4, 4)
+)
+
+# 4. Workflow
+workflow_CART <- workflow() %>%
+  add_recipe(receta_CART) %>%
+  add_model(modelo_CART)
+
+# 5. Validación cruzada espacial con 2 folds
+block_folds_CART <- spatial_block_cv(train_espacial, v = 2)
+
+# 6. Búsqueda de hiperparámetros con validación cruzada espacial
+resultados_CART <- workflow_CART %>%
+  tune_grid(
+    resamples = block_folds_CART,
+    grid = grid_CART,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
+  )
+
+# 7. Resultados y mejores parámetros
+show_best(resultados_CART, metric = "mae", n = 5)
+
+mejores_CART <- select_best(resultados_CART, metric = "mae")
+print(mejores_CART)
+
+# 8. Finalizar workflow con mejores parámetros
+final_workflow_CART <- finalize_workflow(workflow_CART, mejores_CART)
+
+# 9. Ajustar modelo final con todos los datos de entrenamiento
+modelo_final_CART <- fit(final_workflow_CART, data = train_1_EN)
 
 ```
 
@@ -1252,39 +1364,48 @@ print(paste("CV de los precios reales (%):", round(cv_precios_reales_2, 2)))
 
 ```{r}
 
+# Realizar predicciones con el modelo final
+predicciones_CART <- predict(modelo_final_CART, new_data = test_EN)
+
+# Combinar property_id con las predicciones
+pred_CART2 <- test_EN %>%
+  select(property_id) %>%
+  bind_cols(predicciones_CART) %>%
+  rename(price = .pred)
+
+head(resultado_CART)
+
 ```
 
 ### 2.2.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
-write.csv(pred_CARTS1,
-          "C:/../03_Stores/10-04_G4_CARTS1.csv", row.names = FALSE, 
+write.csv(pred_CART1,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_CART1.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_CARTS2,
-          "C:/../03_Stores/10-04_G4_CARTS2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_CARTS3,
-          "C:/../03_Stores/10-04_G4_CARTS3.csv", row.names = FALSE, 
+write.csv(pred_CART2,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/21-05_G4_CART2.csv", row.names = FALSE, 
           quote = FALSE)
 ```
 
 ## 2.3 Random Forest
 
-### 2.3.1 Entrenamiento
+### 2.3.1 Entrenamiento tradicional
 
 ```{r}
+# Control de entrenamiento con out-of-bag (OOB)
 fitControl <- trainControl(method = "oob")
 
+# Grid de hiperparámetros
 tree_grid <- expand.grid(
   mtry = 5,
-  splitrule = "variance",
+  splitrule = "variance",       # para regresión
   min.node.size = c(2, 3, 4)
 )
 
-# Entrenar el modelo con toda la base
+# Entrenar el modelo
 model_forest <- train(
   formula_modelo,
   data = train_factors,
@@ -1295,96 +1416,1011 @@ model_forest <- train(
   importance = "permutation"
 )
 
-# Ver el mejor modelo y métricas OOB
+# Resultados del modelo
 print(model_forest)
 
 # Importancia de variables
 varImp(model_forest)
+
 ```
 
 ### 2.3.2 Predicción
 
 ```{r}
+# Alinear niveles de factores
+for (var in cols_factor) {
+  levels(test[[var]]) <- levels(train_factors[[var]])
+}
+
+# Predicción
+pred <- predict(model_forest, newdata = test)
+
+# Resultado final
+pred_RF1 <- test %>%
+  mutate(price = pred) %>%
+  select(property_id, price)
 
 ```
+
+```{r}
+# Predicciones en entrenamiento
+pred_train <- predict(model_forest, newdata = train_factors)
+
+# Calcular MAE en entrenamiento
+MAE_train <- mean(abs(train_factors$price - pred_train))
+print(MAE_train)
+
+```
+
+###2.3.2 Entrenamiento CV Espacial
+```{r}
+# 1. Preparar base de entrenamiento sin property_id
+train_1_RF <- train_factors %>%
+  select(-property_id)
+
+# 2. Crear receta
+library(recipes)
+receta_1_RF <- recipe(price ~ ., data = train_1_RF) %>%
+  step_normalize(distancia_cai, distancia_mall, distancia_bus, distancia_avenida) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
+
+# 3. Definir modelo de Random Forest
+library(parsnip)
+modelo_1_RF <- rand_forest(
+  mtry = tune(),
+  min_n = tune(),
+  trees = 500
+) %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression")
+
+# 4. Crear grid de hiperparámetros
+library(dials)
+grid_rf <- grid_regular(
+  mtry(range = c(2L, 10L)),
+  min_n(range = c(2L, 10L)),
+  levels = 5
+)
+
+# 5. Workflow
+library(workflows)
+workflow_1_RF <- workflow() %>%
+  add_recipe(receta_1_RF) %>%
+  add_model(modelo_1_RF)
+
+# 6. Unir con geometría para CV espacial
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+# 7. Validación cruzada espacial
+library(spatialsample)
+set.seed(123)
+block_folds_RF <- spatial_block_cv(train_espacial, v = 5)
+
+# 8. Entrenamiento con CV espacial
+library(tune)
+resultados_1_RF <- workflow_1_RF %>%
+  tune_grid(
+    resamples = block_folds_RF,
+    grid = grid_rf,
+    metrics = metric_set(mae),
+    control = control_grid(verbose = TRUE)
+  )
+
+# 9. Visualizar y seleccionar mejores parámetros
+autoplot(resultados_1_RF)
+show_best(resultados_1_RF, metric = "mae", n = 5)
+best_params_RF <- select_best(resultados_1_RF, metric = "mae")
+
+# 10. Finalizar y ajustar modelo final
+final_workflow_RF <- finalize_workflow(workflow_1_RF, best_params_RF)
+final_model_RF <- fit(final_workflow_RF, data = train_1_RF)
+
+# 11. Importancia de variables
+library(vip)
+vip(extract_fit_parsnip(final_model_RF), num_features = 20)
+
+```
+### 2.3.3 Predicción
+```{r}
+# 1. Preparar base test sin property_id
+test_1_RF <- test %>%
+  select(-property_id)
+
+# 2. Predecir con el modelo final
+predicciones_RF <- predict(final_model_RF, new_data = test_1_RF)
+
+# 3. Crear data frame con el formato requerido
+resultados_2_RF <- test %>%
+  select(property_id) %>%
+  mutate(price = predicciones_RF$.pred)
+
+```
+
 
 ### 2.3.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(pred_RF1,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/18-05_G4_RANDOM-FOREST1.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_RF2,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST2.csv", row.names = FALSE, 
+write.csv(resultados_2_RF,
+          "C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/03_Stores/20-05_G4_RANDOM-FOREST2.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_RF3,
-          "C:/../03_Stores/10-04_G4_RANDOM-FOREST3.csv", row.names = FALSE, 
-          quote = FALSE)
 ```
+
 
 ## 2.4 Boosting
 
-### 2.4.1 Entrenamiento
+### 2.4.1 Entrenamiento CV tradicional
 
 ```{r}
+# Cargar paquetes
+pacman::p_load(caret, xgboost, Metrics)
+
+# Definir grid
+grid_xgb <- expand.grid(
+  nrounds = c(100, 250),
+  max_depth = c(2, 3),
+  eta = c(0.1, 0.05),
+  gamma = c(0, 1),
+  colsample_bytree = c(0.6),
+  min_child_weight = c(10),
+  subsample = c(0.8)
+)
+
+# Control
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Entrenar
+set.seed(123)
+modelo_xgb <- train(
+  formula_modelo,
+  data = train_factors,
+  method = "xgbTree",
+  trControl = ctrl,
+  tuneGrid = grid_xgb,
+  metric = "RMSE",
+  verbosity = 0
+)
 
 ```
 
-### 2.4.2 Predicción
+### 2.4.2 Predicción CV tradicional
 
 ```{r}
+# Igualar niveles de factores entre train y test
+for (col in cols_factor) {
+  test[[col]] <- factor(test[[col]], levels = levels(train_factors[[col]]))
+}
+
+predicciones_xgboost <- predict(modelo_xgb, newdata = test)
+
+# Guardar resultados
+resultados_prediccion_boosting <- test_aptos %>%
+  mutate(predicted_price_xgboost = predicciones_xgboost)
+
+# Preparar formato de Kaggle
+pred_boosting1 <- resultados_prediccion_boosting %>%
+  select(property_id, predicted_price_xgboost) %>%
+  rename(price = predicted_price_xgboost)
+
 
 ```
+
+### 2.4.1 Entrenamiento CV Espacial
+
+```{r}
+# Cargar paquetes
+pacman::p_load(caret, xgboost, Metrics)
+
+library(sf)
+library(dplyr)
+
+train_espacial <- train_localidades_sf %>%
+  select(property_id, geometry) %>%
+  inner_join(train_factors, by = "property_id")
+
+library(spatialsample)
+
+set.seed(123)
+block_folds_EN <- spatial_block_cv(train_espacial, v = 5)
+
+library(ggplot2)
+autoplot(block_folds_EN)
+
+# Definir grid
+grid_xgb <- expand.grid(
+  nrounds = c(100, 250),
+  max_depth = c(2, 3),
+  eta = c(0.1, 0.05),
+  gamma = c(0, 1),
+  colsample_bytree = c(0.6),
+  min_child_weight = c(10),
+  subsample = c(0.8)
+)
+
+library(rsample)
+
+index <- lapply(block_folds_EN$splits, function(split) {
+  as.integer(rownames(analysis(split)))
+})
+
+indexOut <- lapply(block_folds_EN$splits, function(split) {
+  as.integer(rownames(assessment(split)))
+})
+
+# Control
+ctrl_espacial <- trainControl(
+  method = "cv",
+  number = 5,
+  index = index,
+  indexOut = indexOut
+)
+
+# Entrenar
+set.seed(123)
+modelo_xgb_espacial <- train(
+  formula_modelo,
+  data = train_factors,
+  method = "xgbTree",
+  trControl = ctrl_espacial,
+  tuneGrid = grid_xgb,
+  metric = "RMSE",
+  verbosity = 0
+)
+
+```
+
+### 2.4.2 Predicción CV tradicional
+
+```{r}
+# Asegurar que las variables categóricas en test tengan los mismos niveles que en train_factors
+for (col in cols_factor) {
+  test[[col]] <- factor(test[[col]], levels = levels(train_factors[[col]]))
+}
+
+# Hacer las predicciones
+predicciones_xgboost_espacial <- predict(modelo_xgb_espacial, newdata = test)
+
+# Guardar resultados con predicción
+resultados_prediccion_boosting_espacial <- test %>%
+  mutate(predicted_price_xgboost_espacial = predicciones_xgboost_espacial)
+
+# Preparar formato para Kaggle (o tu entrega)
+pred_boosting2 <- resultados_prediccion_boosting_espacial %>%
+  select(property_id, predicted_price_xgboost_espacial) %>%
+  rename(price = predicted_price_xgboost_espacial)
+
+```
+
+
 
 ### 2.4.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
 write.csv(pred_boosting1,
-          "C:/../03_Stores/10-04_G4_BOOSTING1.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING1.csv", row.names = FALSE, 
           quote = FALSE)
 
 write.csv(pred_boosting2,
-          "C:/../03_Stores/10-04_G4_BOOSTING2.csv", row.names = FALSE, 
+          "C:/Users/njaco/OneDrive/Documentos/Mestría en Economía Aplicada/Semestre 3/Big Data y Machine Learning/Repositorios/T3_BDML/03_Stores/10-04_G4_BOOSTING2.csv", row.names = FALSE, 
           quote = FALSE)
 
-write.csv(pred_boosting3,
-          "C:/../03_Stores/10-04_G4_BOOSTING3.csv", row.names = FALSE, 
-          quote = FALSE)
 ```
 
 ## 2.5 Redes neuronales
 
 ### 2.5.1 Entrenamiento
 
+Modeo 1
 ```{r}
+p_load( rio, ## read datasets
+        tidyverse, # manipular dataframes
+        tidymodels, #modelos de ML, colección de 8  librerías
+        nnet, # redes neuronales de una sola capa
+        workflows,
+        yardstick,
+        recipes,
+        tune
+        ) 
+
+# Receta del procesamiento
+recipe_nnet <- recipes::recipe(
+  formula_modelo  , data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%   # para las clases no antes vistas en el train. 
+  step_dummy(all_nominal_predictors()) %>%  # crea dummies para las variables categóricas
+  step_zv(all_predictors()) %>%   #  elimina predictores con varianza cero (constantes)
+  step_normalize(all_predictors())  # normaliza los predictores. 
+
+# Definición del modelo con hiperparámetros tuneables
+nnet_base <- mlp(
+  hidden_units = 10,   
+  epochs = 50,        
+  penalty = 0.01) %>%
+  set_mode("regression") %>%
+  set_engine("nnet")
+
+nnet_base
+
+# Flujo de trabajo
+workflow_base <- workflow() %>% 
+  add_recipe(recipe_nnet) %>%
+  add_model(nnet_base) 
+
+# Validación cruzada
+set.seed(143)
+cv_folds <- vfold_cv(train_factors, v = 5)
+
+# Grilla de hiperparámetros
+
+grid_nnet <- grid_regular(
+  hidden_units(range = c(3, 20)),
+  epochs(range = c(50, 200)),
+  levels = 5
+)
+
+# Entrenar con validación cruzada (sin tuning)
+resamples_fit <- fit_resamples(
+  workflow_base,
+  resamples = cv_folds,
+  metrics = metric_set(mae, rmse),
+  control = control_resamples(save_pred = TRUE)
+)
+
+# Ver métricas promedio
+collect_metrics(resamples_fit)
+
+# Ajuste final sobre todos los datos
+final_fit <- fit(workflow_base, data = train_factors)
 
 ```
+
+Modeo 2 - cv tradicional
+
+```{r}
+# _______________________________________________________________
+# Cargar paquetes
+p_load(
+  tidyverse,
+  tidymodels,
+  keras,
+  recipes,
+  rsample,
+  yardstick
+)
+
+# Crear receta
+receta <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%  # Agrupa categorías poco frecuentes
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep <- prep(receta)
+
+
+# Obtener datos procesados
+x <- bake(receta_prep, new_data = NULL) %>%
+  select(-price) %>%
+  as.matrix()
+
+y <- bake(receta_prep, new_data = NULL) %>%
+  pull(price)
+
+# función para crear modelo con keras
+rn_model <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)  # salida continua para regresión
+}
+
+# Crear folds de validación cruzada
+set.seed(123)
+folds_rn <- vfold_cv(data.frame(x), v = 5)
+
+# Lista para almacenar resultados
+resultados_rn <- list()
+
+for (i in seq_along(folds_rn$splits)) {
+  cat("Fold", i, "\n")
+  
+  split <- folds_rn$splits[[i]]
+  
+  # Entrenamiento
+  x_train <- analysis(split)
+  y_train <- y[as.integer(split$in_id)]
+  
+  # Validación
+  x_val <- assessment(split)
+  y_val <- y[-as.integer(split$in_id)]
+  
+  # Crear modelo
+  model <- rn_model(input_shape = ncol(x_train))
+  
+  model %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model %>% fit(
+    x = as.matrix(x_train), y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(as.matrix(x_val), y_val),
+    verbose = 0
+  )
+  
+  # Evaluar en fold
+  scores <- model %>% evaluate(as.matrix(x_val), y_val, verbose = 0)
+  resultados_rn[[i]] <- scores  <- scores
+}
+
+# Resultados de los folds
+t_fold_rn <- map_dfr(resultados_rn, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+#t_fold_rn <- map_dfr(result_fold_rn, ~as_tibble_row(.x)) %>%
+ # rename(mse = loss, mae = mean_absolute_error)
+
+t_fold_rn %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+
+# Entrenar el modelo final
+modelo_rn2 <- rn_model(ncol(x))
+modelo_rn2 %>% compile(
+  loss = "mse",
+  optimizer = optimizer_rmsprop(),
+  metrics = list("mean_absolute_error")
+)
+
+history_final <- modelo_rn2 %>% fit(
+  x = x,
+  y = y,
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2
+)
+plot(history_final)
+
+
+
+```
+
+modelo 3 - cv espacial
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# Unir train y test para asignar zonas consistentes
+data_geo <- bind_rows(train_factors %>% select(lat, lon),
+                      test_rn %>% select(lat, lon))
+
+# K-means con 5 zonas (podés ajustar 'centros')
+set.seed(123)
+zonas <- kmeans(data_geo, centers = 5)
+
+# Añadir zona al dataset
+train_factors$zona <- zonas$cluster[1:nrow(train_factors)]
+test_rn$zona <- zonas$cluster[(nrow(train_factors)+1):nrow(data_geo)]
+
+# Crear receta
+receta3 <- recipe(price ~ ., data = train_factors) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# Preparar la receta
+receta_prep3 <- prep(receta3)
+
+# Preprocesar datos
+procesado3 <- bake(receta_prep3, new_data = NULL)
+
+x3 <- procesado3 %>% select(-price) %>% as.matrix()
+y3 <- procesado3$price
+
+# Añadir columna espacial para agrupar (ej. zona)
+procesado3$zona <- train_factors$zona  # Asegurate que `zona` esté en tu data
+
+# Crear folds de validación cruzada espacial
+set.seed(123)
+folds_espaciales3 <- group_vfold_cv(procesado3, group = zona, v = 5)
+
+# Función para crear modelo
+rn_model3 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# Lista para resultados
+resultados_espaciales <- list()
+
+for (i in seq_along(folds_espaciales3$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split <- folds_espaciales3$splits[[i]]
+  
+  data_train <- analysis(split)
+  data_val <- assessment(split)
+  
+  x_train <- data_train %>% select(-price, -zona) %>% as.matrix()
+  y_train <- data_train$price
+  
+  x_val <- data_val %>% select(-price, -zona) %>% as.matrix()
+  y_val <- data_val$price
+  
+  # Crear y compilar modelo
+  model_rn3 <- rn_model3(ncol(x_train))
+  model_rn3 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history <- model_rn3 %>% fit(
+    x = x_train, y = y_train,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val, y_val),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores3 <- model_rn3 %>% evaluate(x_val, y_val, verbose = 0)
+  resultados_espaciales[[i]] <- scores3
+}
+
+plot(history)
+# Tabla de resultados
+t_espacial <- map_dfr(resultados_espaciales, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# Promedios
+t_espacial %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+
+modelo 4 - cv espacial (cambio de zonas y log price)
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo4 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas4 <- kmeans(data_geo4, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona4 <- zonas4$cluster[1:nrow(train_factors)]
+test$zona4 <- zonas4$cluster[(nrow(train_factors)+1):nrow(data_geo4)]
+
+# 4. Crear receta con log(price)
+train_log <- train_factors %>%
+  mutate(price = log(price + 1))  # equivalente a step_log(price, offset = 1)
+
+
+receta4 <- recipe(price ~ ., data = train_log) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 5. Preparar receta
+receta_prep4 <- prep(receta4)
+
+# 6. Preprocesar datos
+procesado4 <- bake(receta_prep4, new_data = NULL)
+
+# 7. Matrices de entrada
+x4 <- procesado4 %>% select(-price) %>% as.matrix()
+y4 <- procesado4$price
+
+# 8. Añadir columna de zona para agrupamiento
+procesado4$zona4 <- train_factors$zona4
+
+# 9. Crear folds espaciales
+set.seed(123)
+folds_espaciales4 <- group_vfold_cv(procesado4, group = zona4, v = 5)
+
+# 10. Función para crear modelo
+rn_model4 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 11. Lista para resultados
+resultados_espaciales4 <- list()
+
+# 12. Entrenamiento con validación cruzada espacial
+for (i in seq_along(folds_espaciales4$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split4 <- folds_espaciales4$splits[[i]]
+  
+  data_train4 <- analysis(split4)
+  data_val4 <- assessment(split4)
+  
+  x_train4 <- data_train4 %>% select(-price, -zona4) %>% as.matrix()
+  y_train4 <- data_train4$price
+  
+  x_val4 <- data_val4 %>% select(-price, -zona4) %>% as.matrix()
+  y_val4 <- data_val4$price
+  
+  # Crear y compilar modelo
+  model_rn4 <- rn_model4(ncol(x_train4))
+  model_rn4 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history4 <- model_rn4 %>% fit(
+    x = x_train4, y = y_train4,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val4, y_val4),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores4 <- model_rn4 %>% evaluate(x_val4, y_val4, verbose = 0)
+  resultados_espaciales4[[i]] <- scores4
+}
+
+
+# 13. Plot del último fold
+plot(history4)
+
+# 14. Tabla de resultados
+t_espacial4 <- map_dfr(resultados_espaciales4, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 15. Promedios y desviaciones
+t_espacial4 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+Modelo 5 - cv espacial log price
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo5 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas5 <- kmeans(data_geo5, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona5 <- zonas5$cluster[1:nrow(train_factors)]
+test$zona5 <- zonas5$cluster[(nrow(train_factors)+1):nrow(data_geo5)]
+
+# 4. Log-transformar price
+train_log5 <- train_factors %>%
+  mutate(price = log(price + 1))
+
+# 5. Crear receta
+receta5 <- recipe(price ~ ., data = train_log5) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 6. Preparar receta
+receta_prep5 <- prep(receta5)
+procesado5 <- bake(receta_prep5, new_data = NULL)
+
+# 7. Matrices
+x5 <- procesado5 %>% select(-price) %>% as.matrix()
+y5 <- procesado5$price
+procesado5$zona5 <- train_factors$zona5
+
+# 8. Folds espaciales
+set.seed(123)
+folds_espaciales5 <- group_vfold_cv(procesado5, group = zona5, v = 5)
+
+# 9. Modelo
+rn_model5 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.4) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 10. Entrenamiento con validación cruzada
+resultados_espaciales5 <- list()
+
+for (i in seq_along(folds_espaciales5$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split5 <- folds_espaciales5$splits[[i]]
+  data_train5 <- analysis(split5)
+  data_val5 <- assessment(split5)
+  
+  x_train5 <- data_train5 %>% select(-price, -zona5) %>% as.matrix()
+  y_train5 <- data_train5$price
+  
+  x_val5 <- data_val5 %>% select(-price, -zona5) %>% as.matrix()
+  y_val5 <- data_val5$price
+  
+  model_rn5 <- rn_model5(ncol(x_train5))
+  model_rn5 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  history5 <- model_rn5 %>% fit(
+    x = x_train5, y = y_train5,
+    epochs = 30, batch_size = 32,
+    validation_data = list(x_val5, y_val5),
+    verbose = 0
+  )
+  
+  scores5 <- model_rn5 %>% evaluate(x_val5, y_val5, verbose = 0)
+  resultados_espaciales5[[i]] <- scores5
+}
+
+# 11. Gráfico
+plot(history5)
+
+# 12. Resultados por fold
+t_espacial5 <- map_dfr(resultados_espaciales5, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 13. Resumen
+t_espacial5 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
 
 ### 2.5.2 Predicción
 
+modelo 1
+
 ```{r}
 
+# Predecir sobre los datos de test (sin price)
+pred_rn1 <- predict(final_fit, new_data = test_rn)
+
+resultado_rn1 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn1$.pred)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn1 <- sd(resultado_rn1$.pred) / mean(resultado_rn1$.pred) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn1, 2)))
+
+# Análisis por segmento
+seg_rn1 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(.pred),
+    cof_var = round((sd(.pred) / mean(.pred)) * 100, 2)
+  )
+
+print(seg_rn1)
+
+# Outliers en predicciones
+umbral_superior_rn1 <- quantile(resultado_rn1$.pred, 0.975)
+umbral_inferior_rn1 <- quantile(resultado_rn1$.pred, 0.025)
+
+outliers_rn1 <- resultado_rn1 %>%
+  filter(.pred > umbral_superior_rn1 | .pred < umbral_inferior_rn1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn1)))
 ```
+
+Modelo 2
+
+```{r}
+# Preprocesar test
+test_rn <- test %>%
+  left_join(test_aptos %>% select(property_id, lat, lon), by = "property_id")
+
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn2 <- modelo_rn2 %>% predict(x_test)
+
+resultado_rn2 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn2$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn2 <- sd(resultado_rn2$price) / mean(resultado_rn2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn2, 2)))
+
+# Análisis por segmento
+seg_rn2 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn2)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn2)
+
+# Outliers en predicciones
+umbral_superior_rn2 <- quantile(resultado_rn2$.pred, 0.975)
+umbral_inferior_rn2 <- quantile(resultado_rn2$.pred, 0.025)
+
+outliers_rn2 <- resultado_rn2 %>%
+  filter(price > umbral_superior_rn2 | price < umbral_inferior_rn2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn2)))
+```
+
+Modelo 3
+
+```{r}
+x_test <- bake(receta_prep, new_data = test_rn) %>%
+  as.matrix()
+
+# Generar predicciones
+pred_rn3 <- model_rn3 %>% predict(x_test)
+
+resultado_rn3 <- test_rn %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn3))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_rn3$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn3 <- sd(resultado_rn3$price) / mean(resultado_rn3$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn3, 2)))
+
+# Análisis por segmento
+seg_rn3 <- test_rn %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn3)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn3)
+
+# Outliers en predicciones
+umbral_superior_rn3 <- quantile(resultado_rn3$price, 0.975)
+umbral_inferior_rn3 <- quantile(resultado_rn3$price, 0.025)
+
+outliers_rn3 <- resultado_rn3 %>%
+  filter(price > umbral_superior_rn3 | price < umbral_inferior_rn3)
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
+```
+
+
+
+
 
 ### 2.5.3 Template Kaggle
 
 ```{r}
 # Descargar archivo
-write.csv(pred_rneuronales1,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES1.csv", row.names = FALSE, 
-          quote = FALSE)
+write.csv(resultado_rn2,
+          "../03_Stores/24-05_G4_RedNeuronal1.csv", row.names = FALSE, 
+          quote = FALSE)# cv tradicional
 
-write.csv(pred_rneuronales2,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES2.csv", row.names = FALSE, 
-          quote = FALSE)
-
-write.csv(pred_rneuronales3,
-          "C:/../03_Stores/10-04_G4_REDES-NEURONALES3.csv", row.names = FALSE, 
-          quote = FALSE)
+write.csv(resultado_rn3,
+          "../03_Stores/24-05_G4_RedNeuronal2.csv", row.names = FALSE, 
+          quote = FALSE) # cv espacial
 ```
 
 ## 2.6 Super Learners
@@ -1395,6 +2431,548 @@ write.csv(pred_rneuronales3,
 
 ## 2.7 Regresión lineal
 
+Ajuste de base de datos train y test
+
 ```{r}
+# Train
+# Variables categóricas a convertir en factor
+cols_factor_lm <- c(
+  'property_type',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+
+# Filtrar y preparar datos
+train_factors_lm <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Quitar NAs del dataframe preparado
+train_factors_lm <- na.omit(train_factors_lm) ## Esta es la base que se usará para el entrenamiento
+
+
+# Test
+# Conservar test con `price` para evaluación posterior
+test_lm_input <- test_aptos %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
 
 ```
+
+### 2.5.1 Entrenamiento
+
+Modelo 1: todas la variables sin niguna consideración especial
+
+```{r}
+# Variables predictoras
+pred_var_lm <- c(
+  'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator'
+)
+
+# Definir fórmula del modelo de regresión lineal
+variables_lm <- paste(pred_var_lm, collapse = " + ")
+formula_lm <- as.formula(paste("price ~", variables_lm))
+
+# Modelos
+
+modelo_lm1 <- lm(formula_lm, data = train_factors_lm)
+summary(modelo_lm1)
+
+modelo_lm2 <- lm(price ~ year + rooms + bathrooms  + surface_covered + property_type  + distancia_mall + distancia_bus + distancia_avenida + binaria_parking + binaria_gym  + binaria_elevator, data = train_factors_lm)
+summary(modelo_lm2)
+
+
+library(vip)
+vip(modelo_lm1, num_features = 20)
+vip(modelo_lm2, num_features = 20)
+
+modelo_lm3 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator +rooms, data = train_factors_lm)
+summary(modelo_lm3)
+
+```
+
+Modelo con precio como log
+
+```{r}
+# Convertir el precio en log
+train_factors_lm_log <- train_factors_lm %>%
+  mutate(log_price = log(price)) %>%  # ← primero calculamos log_price
+  select(
+    property_id,
+    price,
+    log_price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Formula para log
+formula_log <- as.formula(paste("log_price ~", variables_lm))
+
+# Modelos log lin
+
+modelo_log1 <- lm(formula_log, data = train_factors_lm_log)
+summary(modelo_log1)
+
+modelo_log2 <- lm(log_price ~ year + rooms + bathrooms  + surface_covered  + distancia_mall + distancia_bus + distancia_avenida + binaria_parking + binaria_gym  + binaria_elevator, data = train_factors_lm_log)
+summary(modelo_log2)
+
+```
+
+
+### 2.5.2 Predicción
+
+Modelo 1: 
+
+```{r}
+# Predicción
+pred_lm1 <- predict(modelo_lm1, newdata = test_lm_input)
+
+resultado_lm1 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_lm1, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_lm1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred1 <- sd(resultado_lm1$price) / mean(resultado_lm1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred1, 2)))
+
+# Análisis por segmento
+seg_lm1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm1)
+
+# Outliers en predicciones
+umbral_superior_lm1 <- quantile(resultado_lm1$price, 0.975)
+umbral_inferior_lm1 <- quantile(resultado_lm1$price, 0.025)
+
+outliers_lm1 <- resultado_lm1 %>%
+  filter(price > umbral_superior_lm1 | price < umbral_inferior_lm1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm1)))
+
+
+```
+
+Modelo 2:
+
+```{r}
+# Predicción
+pred_lm2 <- predict(modelo_lm2, newdata = test_lm_input)
+
+resultado_lm2 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_lm2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_lm2$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred2 <- sd(resultado_lm2$price) / mean(resultado_lm2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred2, 2)))
+
+# Análisis por segmento
+seg_lm2 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm2)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm2)
+
+# Outliers en predicciones
+umbral_superior_lm2 <- quantile(resultado_lm2$price, 0.975)
+umbral_inferior_lm2 <- quantile(resultado_lm2$price, 0.025)
+
+outliers_lm2 <- resultado_lm2 %>%
+  filter(price > umbral_superior_lm2 | price < umbral_inferior_lm2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm2)))
+
+```
+
+Modeolo 3:
+
+```{r}
+# Predicción
+pred_lm3 <- predict(modelo_lm3, newdata = test_lm_input)
+
+resultado_lm3 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_lm3))
+
+# Ver la distribución de las predicciones
+graf_pred_lm3 <- ggplot(resultado_lm3, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio Reg Lin",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+
+# Guardar la gráfica
+ggsave("../04_Views/GRAFICO-DISTRIBUCION-PRED-REGLIN-M3.png", plot = graf_pred_lm3,
+       dpi = 150, width = 8, height = 6)
+
+# Estadísticas generales de las predicciones
+summary(resultado_lm3$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_pred3 <- sd(resultado_lm3$price) / mean(resultado_lm3$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred3, 2)))
+
+# Análisis por segmento
+seg_lm3 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_lm3)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_lm3)
+
+# Outliers en predicciones
+umbral_superior_lm3 <- quantile(resultado_lm3$price, 0.975)
+umbral_inferior_lm3 <- quantile(resultado_lm3$price, 0.025)
+
+outliers_lm3 <- resultado_lm3 %>%
+  filter(price > umbral_superior_lm3 | price < umbral_inferior_lm3)
+print(paste("Número de outliers en predicciones:", nrow(outliers_lm3)))
+```
+
+Modeo 4: mejorar modelo considerando correlación espacial para evitar sobreajuste.
+
+```{r}
+# Agregar lat y lon a train_factors_lm 
+train_factors_lm <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator,
+    lat,
+    lon  # agregar lat y lon aquí
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Variables para el modelo (añadiendo lat y lon)
+pred_var_lm_4 <- c(
+  'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator',
+  'lat',
+  'lon'
+)
+
+test_lm_input <- test_aptos %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator, 
+    lat,
+    lon
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+
+# Crear fórmula con lat y lon
+variables_lm_4 <- paste(pred_var_lm_4, collapse = " + ")
+formula_lm_4 <- as.formula(paste("price ~", variables_lm_4))
+
+# Ajustar modelo lineal
+modelo_lm4 <- lm(formula_lm_4, data = train_factors_lm)
+summary(modelo_lm4)
+
+modelo_lm5 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator + rooms + lat + lon, data = train_factors_lm)
+summary(modelo_lm5)
+
+```
+
+
+Modelos log lin:
+
+```{r}
+pred_log1 <- predict(modelo_log1, newdata = test_lm_input)
+pred_log1 <- exp(pred_log1)
+
+resultado_log1 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_log1))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_log1, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_log1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_log1 <- sd(resultado_log1$price) / mean(resultado_log1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log1, 2)))
+
+# Análisis por segmento
+seg_log1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_log1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_log1)
+
+# Outliers en predicciones
+umbral_superior_log1<- quantile(resultado_log1$price, 0.975)
+umbral_inferior_log1 <- quantile(resultado_log1$price, 0.025)
+
+outliers_log1 <- resultado_log1 %>%
+  filter(price > umbral_superior_log1 | price < umbral_inferior_log1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_log1)))
+```
+
+```{r}
+pred_log2 <- predict(modelo_log2, newdata = test_lm_input)
+pred_log2 <- exp(pred_log2)
+
+resultado_log2 <- test_lm_input %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_log2))
+
+# Ver la distribución de las predicciones
+ggplot(resultado_log2, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+# Estadísticas generales de las predicciones
+summary(resultado_log1$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_log1 <- sd(resultado_log1$price) / mean(resultado_log1$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log1, 2)))
+
+# Análisis por segmento
+seg_log1 <- test_lm_input %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_log1)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_log1)
+
+# Outliers en predicciones
+umbral_superior_log1<- quantile(resultado_log1$price, 0.975)
+umbral_inferior_log1 <- quantile(resultado_log1$price, 0.025)
+
+outliers_log1 <- resultado_log1 %>%
+  filter(price > umbral_superior_log1 | price < umbral_inferior_log1)
+print(paste("Número de outliers en predicciones:", nrow(outliers_log1)))
+```
+
+
+### 2.5.3 Template Kaggle
+
+```{r}
+# Descargar archivo
+write.csv(resultado_lm3,
+          "../03_Stores/18-05_G4_RegLin1.csv", row.names = FALSE, 
+          quote = FALSE)
+
+```
+
+
+
