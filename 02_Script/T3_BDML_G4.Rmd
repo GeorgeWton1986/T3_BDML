@@ -1898,6 +1898,229 @@ t_espacial %>%
 ```
 
 
+modelo 4 - cv espacial (cambio de zonas y log price)
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo4 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas4 <- kmeans(data_geo4, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona4 <- zonas4$cluster[1:nrow(train_factors)]
+test$zona4 <- zonas4$cluster[(nrow(train_factors)+1):nrow(data_geo4)]
+
+# 4. Crear receta con log(price)
+train_log <- train_factors %>%
+  mutate(price = log(price + 1))  # equivalente a step_log(price, offset = 1)
+
+
+receta4 <- recipe(price ~ ., data = train_log) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 5. Preparar receta
+receta_prep4 <- prep(receta4)
+
+# 6. Preprocesar datos
+procesado4 <- bake(receta_prep4, new_data = NULL)
+
+# 7. Matrices de entrada
+x4 <- procesado4 %>% select(-price) %>% as.matrix()
+y4 <- procesado4$price
+
+# 8. Añadir columna de zona para agrupamiento
+procesado4$zona4 <- train_factors$zona4
+
+# 9. Crear folds espaciales
+set.seed(123)
+folds_espaciales4 <- group_vfold_cv(procesado4, group = zona4, v = 5)
+
+# 10. Función para crear modelo
+rn_model4 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.3) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 11. Lista para resultados
+resultados_espaciales4 <- list()
+
+# 12. Entrenamiento con validación cruzada espacial
+for (i in seq_along(folds_espaciales4$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split4 <- folds_espaciales4$splits[[i]]
+  
+  data_train4 <- analysis(split4)
+  data_val4 <- assessment(split4)
+  
+  x_train4 <- data_train4 %>% select(-price, -zona4) %>% as.matrix()
+  y_train4 <- data_train4$price
+  
+  x_val4 <- data_val4 %>% select(-price, -zona4) %>% as.matrix()
+  y_val4 <- data_val4$price
+  
+  # Crear y compilar modelo
+  model_rn4 <- rn_model4(ncol(x_train4))
+  model_rn4 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  # Entrenar
+  history4 <- model_rn4 %>% fit(
+    x = x_train4, y = y_train4,
+    epochs = 100, batch_size = 32,
+    validation_data = list(x_val4, y_val4),
+    verbose = 0
+  )
+  
+  # Evaluar
+  scores4 <- model_rn4 %>% evaluate(x_val4, y_val4, verbose = 0)
+  resultados_espaciales4[[i]] <- scores4
+}
+
+
+# 13. Plot del último fold
+plot(history4)
+
+# 14. Tabla de resultados
+t_espacial4 <- map_dfr(resultados_espaciales4, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 15. Promedios y desviaciones
+t_espacial4 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+Modelo 5 - cv espacial log price
+
+```{r}
+library(tidymodels)
+library(keras)
+library(dplyr)
+library(purrr)
+
+# 1. Unir train y test para asignar zonas consistentes
+data_geo5 <- bind_rows(train_factors %>% select(lat, lon),
+                       test %>% select(lat, lon))
+
+# 2. K-means con 5 zonas
+set.seed(123)
+zonas5 <- kmeans(data_geo5, centers = 5, nstart = 25)
+
+# 3. Asignar zona a cada set
+train_factors$zona5 <- zonas5$cluster[1:nrow(train_factors)]
+test$zona5 <- zonas5$cluster[(nrow(train_factors)+1):nrow(data_geo5)]
+
+# 4. Log-transformar price
+train_log5 <- train_factors %>%
+  mutate(price = log(price + 1))
+
+# 5. Crear receta
+receta5 <- recipe(price ~ ., data = train_log5) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# 6. Preparar receta
+receta_prep5 <- prep(receta5)
+procesado5 <- bake(receta_prep5, new_data = NULL)
+
+# 7. Matrices
+x5 <- procesado5 %>% select(-price) %>% as.matrix()
+y5 <- procesado5$price
+procesado5$zona5 <- train_factors$zona5
+
+# 8. Folds espaciales
+set.seed(123)
+folds_espaciales5 <- group_vfold_cv(procesado5, group = zona5, v = 5)
+
+# 9. Modelo
+rn_model5 <- function(input_shape) {
+  keras_model_sequential() %>%
+    layer_dense(units = 64, activation = "relu", input_shape = input_shape) %>%
+    layer_dropout(rate = 0.4) %>%
+    layer_dense(units = 32, activation = "relu") %>%
+    layer_dense(units = 1)
+}
+
+# 10. Entrenamiento con validación cruzada
+resultados_espaciales5 <- list()
+
+for (i in seq_along(folds_espaciales5$splits)) {
+  cat("Fold espacial", i, "\n")
+  
+  split5 <- folds_espaciales5$splits[[i]]
+  data_train5 <- analysis(split5)
+  data_val5 <- assessment(split5)
+  
+  x_train5 <- data_train5 %>% select(-price, -zona5) %>% as.matrix()
+  y_train5 <- data_train5$price
+  
+  x_val5 <- data_val5 %>% select(-price, -zona5) %>% as.matrix()
+  y_val5 <- data_val5$price
+  
+  model_rn5 <- rn_model5(ncol(x_train5))
+  model_rn5 %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+  
+  history5 <- model_rn5 %>% fit(
+    x = x_train5, y = y_train5,
+    epochs = 30, batch_size = 32,
+    validation_data = list(x_val5, y_val5),
+    verbose = 0
+  )
+  
+  scores5 <- model_rn5 %>% evaluate(x_val5, y_val5, verbose = 0)
+  resultados_espaciales5[[i]] <- scores5
+}
+
+# 11. Gráfico
+plot(history5)
+
+# 12. Resultados por fold
+t_espacial5 <- map_dfr(resultados_espaciales5, ~tibble(
+  mse = .x["loss"],
+  mae = .x["mean_absolute_error"]
+))
+
+# 13. Resumen
+t_espacial5 %>%
+  summarise(
+    media_mae = mean(mae),
+    sd_mae = sd(mae),
+    media_mse = mean(mse)
+  )
+```
+
+
 ### 2.5.2 Predicción
 
 modelo 1
@@ -2069,6 +2292,9 @@ outliers_rn3 <- resultado_rn3 %>%
   filter(price > umbral_superior_rn3 | price < umbral_inferior_rn3)
 print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
 ```
+
+
+
 
 
 ### 2.5.3 Template Kaggle
