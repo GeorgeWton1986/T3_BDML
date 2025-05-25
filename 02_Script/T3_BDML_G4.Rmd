@@ -2652,6 +2652,99 @@ outliers_lm3 <- resultado_lm3 %>%
 print(paste("Número de outliers en predicciones:", nrow(outliers_lm3)))
 ```
 
+Modeo 4: mejorar modelo considerando correlación espacial para evitar sobreajuste.
+
+```{r}
+# Agregar lat y lon a train_factors_lm 
+train_factors_lm <- train_localidades %>%
+  select(
+    property_id,
+    price,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator,
+    lat,
+    lon  # agregar lat y lon aquí
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+# Variables para el modelo (añadiendo lat y lon)
+pred_var_lm_4 <- c(
+  'year',
+  'rooms',
+  'bedrooms',
+  'bathrooms',
+  'surface_total',
+  'surface_covered',
+  'property_type',
+  'distancia_cai',
+  'distancia_mall',
+  'distancia_bus',
+  'distancia_avenida',
+  'binaria_parking',
+  'binaria_terrace',
+  'binaria_gym',
+  'binaria_laundry',
+  'binaria_elevator',
+  'lat',
+  'lon'
+)
+
+test_lm_input <- test_aptos %>%
+  select(
+    property_id,
+    year,
+    property_type,
+    rooms,
+    bedrooms,
+    bathrooms,
+    surface_total,
+    surface_covered,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator, 
+    lat,
+    lon
+  ) %>%
+  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  na.omit() %>%
+  as.data.frame()
+
+
+# Crear fórmula con lat y lon
+variables_lm_4 <- paste(pred_var_lm_4, collapse = " + ")
+formula_lm_4 <- as.formula(paste("price ~", variables_lm_4))
+
+# Ajustar modelo lineal
+modelo_lm4 <- lm(formula_lm_4, data = train_factors_lm)
+summary(modelo_lm4)
+
+modelo_lm5 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator + rooms + lat + lon, data = train_factors_lm)
+summary(modelo_lm5)
+
+```
+
 
 Modelos log lin:
 
