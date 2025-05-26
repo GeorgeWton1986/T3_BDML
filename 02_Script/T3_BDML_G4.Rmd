@@ -2696,14 +2696,14 @@ modelo 1
 ```{r}
 
 # Predecir sobre los datos de test (sin price)
-pred_rn1 <- predict(final_fit, new_data = test_rn)
+pred_rn1 <- predict(final_fit, new_data = test)
 
-resultado_rn1 <- test_rn %>%
+resultado_rn1 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_rn1))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
+graf_RN1 <- ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -2717,6 +2717,8 @@ ggplot(resultado_rn1, aes(x = .pred/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+ggsave("../04_Views/GRAFICO2.5.1-PRED-PRECIO-RD1.png", plot = graf_RN1, dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_rn1$.pred)
 
@@ -2725,7 +2727,7 @@ cof_var_rn1 <- sd(resultado_rn1$.pred) / mean(resultado_rn1$.pred) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn1, 2)))
 
 # Análisis por segmento
-seg_rn1 <- test_rn %>%
+seg_rn1 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_rn1)) %>%
   group_by(property_type) %>%
@@ -2748,22 +2750,18 @@ print(paste("Número de outliers en predicciones:", nrow(outliers_rn1)))
 Modelo 2
 
 ```{r}
-# Preprocesar test
-test_rn <- test %>%
-  left_join(test_aptos %>% select(property_id, lat, lon), by = "property_id")
-
-x_test <- bake(receta_prep, new_data = test_rn) %>%
+x_test <- bake(receta_prep, new_data = test) %>%
   as.matrix()
 
 # Generar predicciones
 pred_rn2 <- modelo_rn2 %>% predict(x_test)
 
-resultado_rn2 <- test_rn %>%
+resultado_rn2 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_rn2))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
+graf_RN2 <- ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -2777,6 +2775,9 @@ ggplot(resultado_rn2, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+ggsave("../04_Views/GRAFICO2.5.2-PRED-PRECIO-RD2.png", plot = graf_RN2, dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_rn2$price)
 
@@ -2785,7 +2786,7 @@ cof_var_rn2 <- sd(resultado_rn2$price) / mean(resultado_rn2$price) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn2, 2)))
 
 # Análisis por segmento
-seg_rn2 <- test_rn %>%
+seg_rn2 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_rn2)) %>%
   group_by(property_type) %>%
@@ -2808,18 +2809,18 @@ print(paste("Número de outliers en predicciones:", nrow(outliers_rn2)))
 Modelo 3
 
 ```{r}
-x_test <- bake(receta_prep, new_data = test_rn) %>%
+x_test <- bake(receta_prep, new_data = test) %>%
   as.matrix()
 
 # Generar predicciones
 pred_rn3 <- model_rn3 %>% predict(x_test)
 
-resultado_rn3 <- test_rn %>%
+resultado_rn3 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_rn3))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
+graf_RN3 <- ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -2833,6 +2834,9 @@ ggplot(resultado_rn3, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+ggsave("../04_Views/GRAFICO3.5.2-PRED-PRECIO-RD3.png", plot = graf_RN3, dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_rn3$price)
 
@@ -2841,7 +2845,7 @@ cof_var_rn3 <- sd(resultado_rn3$price) / mean(resultado_rn3$price) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn3, 2)))
 
 # Análisis por segmento
-seg_rn3 <- test_rn %>%
+seg_rn3 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_rn3)) %>%
   group_by(property_type) %>%
@@ -2861,6 +2865,127 @@ outliers_rn3 <- resultado_rn3 %>%
 print(paste("Número de outliers en predicciones:", nrow(outliers_rn3)))
 ```
 
+Modelo 4 - valuidación cruzada espacial (cambio de zonas)
+
+```{r}
+# Preprocesar test con la misma receta
+x_test4 <- bake(receta_prep4, new_data = test) %>%
+  select(-zona4) %>%
+  as.matrix()
+
+# Generar predicciones (en escala log)
+pred_log_rn4 <- model_rn4 %>% predict(x_test4)
+
+# Invertir log para obtener precios reales
+pred_rn4 <- exp(pred_log_rn4) - 1
+
+# Unir con IDs
+resultado_rn4 <- test %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn4))
+
+# Ver la distribución de las predicciones
+graf_RN4 <- ggplot(resultado_rn4, aes(x = price/1000000)) +  # Convertir a millones
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),  # Centrar título
+    axis.text.x = element_text(size = 9)
+  ) +
+  scale_x_continuous(
+    labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
+    breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
+  )
+
+ggsave("../04_Views/GRAFICO3.5.2-PRED-PRECIO-RD4.png", plot = graf_RN4, dpi = 150, width = 8, height = 6)
+
+# Estadísticas generales de las predicciones
+summary(resultado_rn4$price)
+
+# Coeficiente de variación de las predicciones totales
+cof_var_rn4 <- sd(resultado_rn4$price) / mean(resultado_rn4$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_rn4, 2)))
+
+# Análisis por tipo de propiedad
+seg_rn4 <- test %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn4)) %>%
+  group_by(property_type) %>%
+  summarize(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+
+print(seg_rn4)
+
+# Detección de outliers en predicciones
+umbral_superior_rn4 <- quantile(resultado_rn4$price, 0.975)
+umbral_inferior_rn4 <- quantile(resultado_rn4$price, 0.025)
+
+outliers_rn4 <- resultado_rn4 %>%
+  filter(price > umbral_superior_rn4 | price < umbral_inferior_rn4)
+
+print(paste("Número de outliers en predicciones:", nrow(outliers_rn4)))
+```
+
+Modelo 5 - cv espacial, log price y ajuste de hiperparametros para disminuir sobreajuste de modelo 4
+
+```{r}
+x_test5 <- bake(receta_prep5, new_data = test) %>%
+  select(-zona5) %>%
+  as.matrix()
+
+pred_log_rn5 <- model_rn5 %>% predict(x_test5)
+pred_rn5 <- exp(pred_log_rn5) - 1
+
+resultado_rn5 <- test %>%
+  select(property_id) %>%
+  bind_cols(data.frame(price = pred_rn5))
+
+# 15. Gráfico
+graf_RN5 <- ggplot(resultado_rn5, aes(x = price / 1e6)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
+  labs(title = "Distribución de las predicciones de precio (Modelo 5)",
+       x = "Precio predicho (Millones de Pesos)",
+       y = "Frecuencia") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_x_continuous(labels = scales::comma_format(accuracy = 0.1),
+                     breaks = scales::pretty_breaks(n = 8))
+
+ggsave("../04_Views/GRAFICO3.5.2-PRED-PRECIO-RD5.png", plot = graf_RN5, dpi = 150, width = 8, height = 6)
+
+# 16. Estadísticas
+summary(resultado_rn5$price)
+
+# 17. Coeficiente de variación
+cv_rn5 <- sd(resultado_rn5$price) / mean(resultado_rn5$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cv_rn5, 2)))
+
+# 18. Por tipo de propiedad
+seg_rn5 <- test %>%
+  select(property_type) %>%
+  bind_cols(data.frame(price = pred_rn5)) %>%
+  group_by(property_type) %>%
+  summarise(
+    media = mean(price),
+    cof_var = round((sd(price) / mean(price)) * 100, 2)
+  )
+print(seg_rn5)
+
+# 19. Outliers
+umbral_sup5 <- quantile(resultado_rn5$price, 0.975)
+umbral_inf5 <- quantile(resultado_rn5$price, 0.025)
+
+outliers5 <- resultado_rn5 %>%
+  filter(price > umbral_sup5 | price < umbral_inf5)
+
+print(paste("Número de outliers en predicciones:", nrow(outliers5)))
+```
+
 ### 2.5.3 Template Kaggle
 
 ```{r}
@@ -2872,82 +2997,16 @@ write.csv(resultado_rn2,
 write.csv(resultado_rn3,
           "../03_Stores/24-05_G4_RedNeuronal2.csv", row.names = FALSE, 
           quote = FALSE) # cv espacial
+write.csv(resultado_rn5,
+          "../03_Stores/24-05_G4_RedNeuronal3.csv", row.names = FALSE, 
+          quote = FALSE) # cv espacial, log price y ajuste de hiperparametros para disminuir sobreajuste de modelo 4
+
+write.csv(resultado_rn4,
+          "../03_Stores/24-05_G4_RedNeuronal4.csv", row.names = FALSE, 
+          quote = FALSE) # cv espacial, log price 
 ```
 
 ## 2.7 Regresión lineal
-
-Ajuste de base de datos train y test
-
-```{r}
-# Train
-# Variables categóricas a convertir en factor
-cols_factor_lm <- c(
-  'property_type',
-  'binaria_parking',
-  'binaria_terrace',
-  'binaria_gym',
-  'binaria_laundry',
-  'binaria_elevator'
-)
-
-
-# Filtrar y preparar datos
-train_factors_lm <- train_localidades %>%
-  select(
-    property_id,
-    price,
-    year,
-    property_type,
-    rooms,
-    bedrooms,
-    bathrooms,
-    surface_total,
-    surface_covered,
-    distancia_cai,
-    distancia_mall,
-    distancia_bus,
-    distancia_avenida,
-    binaria_parking,
-    binaria_terrace,
-    binaria_gym,
-    binaria_laundry,
-    binaria_elevator
-  ) %>%
-  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
-  na.omit() %>%
-  as.data.frame()
-
-# Quitar NAs del dataframe preparado
-train_factors_lm <- na.omit(train_factors_lm) ## Esta es la base que se usará para el entrenamiento
-
-
-# Test
-# Conservar test con `price` para evaluación posterior
-test_lm_input <- test_aptos %>%
-  select(
-    property_id,
-    year,
-    property_type,
-    rooms,
-    bedrooms,
-    bathrooms,
-    surface_total,
-    surface_covered,
-    distancia_cai,
-    distancia_mall,
-    distancia_bus,
-    distancia_avenida,
-    binaria_parking,
-    binaria_terrace,
-    binaria_gym,
-    binaria_laundry,
-    binaria_elevator
-  ) %>%
-  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
-  na.omit() %>%
-  as.data.frame()
-
-```
 
 ### 2.5.1 Entrenamiento
 
