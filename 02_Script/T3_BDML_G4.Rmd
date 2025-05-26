@@ -3089,14 +3089,14 @@ Modelo 1:
 
 ```{r}
 # Predicción
-pred_lm1 <- predict(modelo_lm1, newdata = test_lm_input)
+pred_lm1 <- predict(modelo_lm1, newdata = test)
 
-resultado_lm1 <- test_lm_input %>%
+resultado_lm1 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_lm1))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_lm1, aes(x = price/1000000)) +  # Convertir a millones
+graf_lm1 <- ggplot(resultado_lm1, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -3110,6 +3110,9 @@ ggplot(resultado_lm1, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+ggsave("../04_Views/GRAFICO2.7.3PRED-REGLIN1.png", plot = graf_lm1, dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_lm1$price)
 
@@ -3118,7 +3121,7 @@ cof_var_pred1 <- sd(resultado_lm1$price) / mean(resultado_lm1$price) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred1, 2)))
 
 # Análisis por segmento
-seg_lm1 <- test_lm_input %>%
+seg_lm1 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_lm1)) %>%
   group_by(property_type) %>%
@@ -3144,14 +3147,14 @@ Modelo 2:
 
 ```{r}
 # Predicción
-pred_lm2 <- predict(modelo_lm2, newdata = test_lm_input)
+pred_lm2 <- predict(modelo_lm2, newdata = test)
 
-resultado_lm2 <- test_lm_input %>%
+resultado_lm2 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_lm2))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_lm2, aes(x = price/1000000)) +  # Convertir a millones
+graf_lm2 <- ggplot(resultado_lm2, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -3165,6 +3168,9 @@ ggplot(resultado_lm2, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+ggsave("../04_Views/GRAFICO2.7.3PRED-REGLIN1.png", plot = graf_lm2, dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_lm2$price)
 
@@ -3173,7 +3179,7 @@ cof_var_pred2 <- sd(resultado_lm2$price) / mean(resultado_lm2$price) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred2, 2)))
 
 # Análisis por segmento
-seg_lm2 <- test_lm_input %>%
+seg_lm2 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_lm2)) %>%
   group_by(property_type) %>%
@@ -3198,9 +3204,9 @@ Modeolo 3:
 
 ```{r}
 # Predicción
-pred_lm3 <- predict(modelo_lm3, newdata = test_lm_input)
+pred_lm3 <- predict(modelo_lm3, newdata = test)
 
-resultado_lm3 <- test_lm_input %>%
+resultado_lm3 <- test %>%
   select(property_id) %>%
   bind_cols(data.frame(price = pred_lm3))
 
@@ -3232,7 +3238,7 @@ cof_var_pred3 <- sd(resultado_lm3$price) / mean(resultado_lm3$price) * 100
 print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_pred3, 2)))
 
 # Análisis por segmento
-seg_lm3 <- test_lm_input %>%
+seg_lm3 <- test %>%
   select(property_type) %>%
   bind_cols(data.frame(price = pred_lm3)) %>%
   group_by(property_type) %>%
@@ -3279,7 +3285,7 @@ train_factors_lm <- train_localidades %>%
     lat,
     lon  # agregar lat y lon aquí
   ) %>%
-  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  mutate(across(all_of(cols_factor), as.factor)) %>%
   na.omit() %>%
   as.data.frame()
 
@@ -3327,7 +3333,7 @@ test_lm_input <- test_aptos %>%
     lat,
     lon
   ) %>%
-  mutate(across(all_of(cols_factor_lm), as.factor)) %>%
+  mutate(across(all_of(cols_factor), as.factor)) %>%
   na.omit() %>%
   as.data.frame()
 
@@ -3343,6 +3349,7 @@ summary(modelo_lm4)
 modelo_lm5 <- lm(price ~  bathrooms  + surface_covered  + distancia_avenida + binaria_elevator + rooms + lat + lon, data = train_factors_lm)
 summary(modelo_lm5)
 
+
 ```
 
 
@@ -3357,7 +3364,7 @@ resultado_log1 <- test_lm_input %>%
   bind_cols(data.frame(price = pred_log1))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_log1, aes(x = price/1000000)) +  # Convertir a millones
+graf_pred_log1 <- ggplot(resultado_log1, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -3371,6 +3378,11 @@ ggplot(resultado_log1, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+# Guardar la gráfica
+ggsave("../04_Views/GRAFICO-DISTRIBUCION-PRED-LOGLIN1.png", plot = graf_pred_log1,
+       dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
 summary(resultado_log1$price)
 
@@ -3408,7 +3420,7 @@ resultado_log2 <- test_lm_input %>%
   bind_cols(data.frame(price = pred_log2))
 
 # Ver la distribución de las predicciones
-ggplot(resultado_log2, aes(x = price/1000000)) +  # Convertir a millones
+graf_pred_log2 <- ggplot(resultado_log2, aes(x = price/1000000)) +  # Convertir a millones
   geom_histogram(bins = 30, fill = "skyblue", color = "darkblue") +
   labs(title = "Distribución de las predicciones de precio",
        x = "Precio predicho (Millones de Pesos)",
@@ -3422,32 +3434,37 @@ ggplot(resultado_log2, aes(x = price/1000000)) +  # Convertir a millones
     labels = scales::comma_format(accuracy = 0.1),  # Formato de números con comas y 1 decimal
     breaks = scales::pretty_breaks(n = 8)           # Número adecuado de marcas
   )
+
+# Guardar la gráfica
+ggsave("../04_Views/GRAFICO-DISTRIBUCION-PRED-LOGLIN1.png", plot = graf_pred_log2,
+       dpi = 150, width = 8, height = 6)
+
 # Estadísticas generales de las predicciones
-summary(resultado_log1$price)
+summary(resultado_log2$price)
 
 # Coeficiente de variación de las predicciones totales
-cof_var_log1 <- sd(resultado_log1$price) / mean(resultado_log1$price) * 100
-print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log1, 2)))
+cof_var_log2 <- sd(resultado_log2$price) / mean(resultado_log2$price) * 100
+print(paste("Coeficiente de variación de las predicciones (%):", round(cof_var_log2, 2)))
 
 # Análisis por segmento
-seg_log1 <- test_lm_input %>%
+seg_log2 <- test_lm_input %>%
   select(property_type) %>%
-  bind_cols(data.frame(price = pred_log1)) %>%
+  bind_cols(data.frame(price = pred_log2)) %>%
   group_by(property_type) %>%
   summarize(
     media = mean(price),
     cof_var = round((sd(price) / mean(price)) * 100, 2)
   )
 
-print(seg_log1)
+print(seg_log2)
 
 # Outliers en predicciones
-umbral_superior_log1<- quantile(resultado_log1$price, 0.975)
-umbral_inferior_log1 <- quantile(resultado_log1$price, 0.025)
+umbral_superior_log2<- quantile(resultado_log2$price, 0.975)
+umbral_inferior_log2 <- quantile(resultado_log2$price, 0.025)
 
-outliers_log1 <- resultado_log1 %>%
-  filter(price > umbral_superior_log1 | price < umbral_inferior_log1)
-print(paste("Número de outliers en predicciones:", nrow(outliers_log1)))
+outliers_log2 <- resultado_log2 %>%
+  filter(price > umbral_superior_log2 | price < umbral_inferior_log2)
+print(paste("Número de outliers en predicciones:", nrow(outliers_log2)))
 ```
 
 
