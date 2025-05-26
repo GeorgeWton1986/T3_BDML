@@ -257,23 +257,6 @@ range_lon <- range(train_aptos$lon, na.rm = TRUE)
 range_lat <- range(train_aptos$lat, na.rm = TRUE)
 ```
 
-```{r}
-library(ggplot2)
-
-ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
-  geom_sf(color = "blue", alpha = 0.6, size = 1.2) +
-  coord_sf(
-    xlim = c(min(train_aptos$lon), max(train_aptos$lon)),
-    ylim = c(min(train_aptos$lat), max(train_aptos$lat)),
-    expand = FALSE
-  ) +
-  labs(title = "Ubicación de apartamentos - Muestra de entrenamiento",
-       x = "Longitud", y = "Latitud") +
-  theme_minimal()
-
-```
-
-
 Carga de datos espaciales Identificar localidades sin Chapinero
 
 ```{r}
@@ -311,11 +294,26 @@ leaflet() %>%
 ```{r}
 library(ggplot2)
 
+# Mapa formato plano
+
 ggplot(train_localidades_sf) +
   geom_sf(color = "blue", size = 1.5, alpha = 0.7) +
   theme_minimal() +
   labs(title = "Puntos fuera de Chapinero en Bogotá",
        x = "Longitud", y = "Latitud")
+
+# Mapar formato plano
+
+ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
+  geom_sf(color = "blue", alpha = 0.6, size = 1.2) +
+  coord_sf(
+    xlim = c(min(train_aptos$lon), max(train_aptos$lon)),
+    ylim = c(min(train_aptos$lat), max(train_aptos$lat)),
+    expand = FALSE
+  ) +
+  labs(title = "Ubicación de apartamentos - Muestra de entrenamiento",
+       x = "Longitud", y = "Latitud") +
+  theme_minimal()
 ```
 
 
@@ -868,7 +866,7 @@ dummies_df_test <- test_aptos_tokens_clean %>%
 # Unir a df 
 test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
-###--------#####
+-###--------#####
 ## 1.4 Convertir a factores base entrenamiento
 
 ```{r}
@@ -2349,9 +2347,10 @@ history_final <- modelo_rn2 %>% fit(
   batch_size = 32,
   validation_split = 0.2
 )
-plot(history_final)
 
 
+graf_RD_Tain2 <- plot(history_final)
+ggsave("../04_Views/GRAFICO2.5-TRAIN-RD2.png", plot = graf_RD_Tain2, dpi = 150, width = 8, height = 6)
 
 ```
 
@@ -2365,7 +2364,7 @@ library(purrr)
 
 # Unir train y test para asignar zonas consistentes
 data_geo <- bind_rows(train_factors %>% select(lat, lon),
-                      test_rn %>% select(lat, lon))
+                      test %>% select(lat, lon))
 
 # K-means con 5 zonas (podés ajustar 'centros')
 set.seed(123)
@@ -2373,7 +2372,7 @@ zonas <- kmeans(data_geo, centers = 5)
 
 # Añadir zona al dataset
 train_factors$zona <- zonas$cluster[1:nrow(train_factors)]
-test_rn$zona <- zonas$cluster[(nrow(train_factors)+1):nrow(data_geo)]
+test$zona <- zonas$cluster[(nrow(train_factors)+1):nrow(data_geo)]
 
 # Crear receta
 receta3 <- recipe(price ~ ., data = train_factors) %>%
@@ -2446,7 +2445,9 @@ for (i in seq_along(folds_espaciales3$splits)) {
   resultados_espaciales[[i]] <- scores3
 }
 
-plot(history)
+graf_RD_Tain3 <- plot(history)
+ggsave("../04_Views/GRAFICO2.5-TRAIN-RD3.png", plot = graf_RD_Tain3, dpi = 150, width = 8, height = 6)
+
 # Tabla de resultados
 t_espacial <- map_dfr(resultados_espaciales, ~tibble(
   mse = .x["loss"],
@@ -2562,7 +2563,9 @@ for (i in seq_along(folds_espaciales4$splits)) {
 
 
 # 13. Plot del último fold
-plot(history4)
+graf_RD_Tain4 <- plot(history4)
+
+ggsave("../04_Views/GRAFICO2.5-TRAIN-RD4.png", plot = graf_RD_Tain4, dpi = 150, width = 8, height = 6)
 
 # 14. Tabla de resultados
 t_espacial4 <- map_dfr(resultados_espaciales4, ~tibble(
