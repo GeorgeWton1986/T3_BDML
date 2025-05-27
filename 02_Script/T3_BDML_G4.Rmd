@@ -1932,20 +1932,78 @@ resultados_1_RF <- workflow_1_RF %>%
     control = control_grid(verbose = TRUE)
   )
 
-# 9. Visualizar y seleccionar mejores parámetros
-autoplot(resultados_1_RF)
-show_best(resultados_1_RF, metric = "mae", n = 5)
-best_params_RF <- select_best(resultados_1_RF, metric = "mae")
-
-# 10. Finalizar y ajustar modelo final
+# 9. Finalizar y ajustar modelo final
 final_workflow_RF <- finalize_workflow(workflow_1_RF, best_params_RF)
 final_model_RF <- fit(final_workflow_RF, data = train_1_RF)
 
-# 11. Importancia de variables
+# 10. Importancia de variables
 library(vip)
-vip(extract_fit_parsnip(final_model_RF), num_features = 20)
+
+# Crear el gráfico 
+graf_vip <- vip(extract_fit_parsnip(final_model_RF), num_features = 20)
+
+# Guardar el gráfico 
+ggsave("C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/04_Views/GRAFICO9-IMPORTANCIA-VARIABLES.png",
+       plot = graf_vip, dpi = 150, width = 8, height = 6)
 
 ```
+
+
+```{r}
+#Gráfico
+
+library(ggplot2)
+
+# Crear el gráfico y asignarlo a un objeto
+graf_mae <- collect_metrics(resultados_1_RF) %>%
+  filter(.metric == "mae") %>%
+  ggplot(aes(x = mtry, y = mean, color = factor(min_n))) +
+  geom_point() +
+  geom_line() +
+  labs(title = "MAE en validación cruzada espacial",
+       subtitle = "Grid de hiperparámetros",
+       y = "MAE promedio", x = "mtry", color = "min_n") +
+  theme_minimal()
+
+# Guardar el gráfico
+ggsave("C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/04_Views/GRAFICO10-MAE-VALIDACION-CRUZADA.png",
+       plot = graf_mae, dpi = 150, width = 8, height = 6)
+
+```
+
+
+```{r}
+# Crear el gráfico
+graf_hist_price <- ggplot(resultados_2_RF, aes(x = price)) +
+  geom_histogram(bins = 30, fill = "#0072B2", color = "white") +
+  labs(title = "Distribución de precios predichos (Random Forest)",
+       x = "Precio predicho", y = "Frecuencia") +
+  theme_minimal()
+
+# Guardarlo como imagen
+ggsave("C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/04_Views/GRAFICO11-HISTOGRAMA-PREDICCIONES.png",
+       plot = graf_hist_price, dpi = 150, width = 8, height = 6)
+
+
+```
+
+```{r}
+# Crear el boxplot
+graf_boxplot_price <- ggplot(resultados_2_RF, aes(y = price)) +
+  geom_boxplot(fill = "#009E73") +
+  labs(title = "Boxplot de precios predichos",
+       y = "Precio predicho") +
+  theme_minimal()
+
+# Guardar el gráfico como imagen
+ggsave("C:/MECA/2025/BIG DATA Y MACHINE LEARNING- Ignasio Sarmiento/Taller3/T3_BDML/04_Views/GRAFICO12-BOXPLOT-PREDICCIONES.png",
+       plot = graf_boxplot_price, dpi = 150, width = 6, height = 6)
+
+```
+
+
+
+
 ### 2.3.3 Predicción
 ```{r}
 # 1. Preparar base test sin property_id
