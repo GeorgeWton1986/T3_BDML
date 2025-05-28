@@ -41,7 +41,7 @@ p_load(tidyverse,   # Manipulación y visualización de datos
        tmaptools,   # Geocode_OMS()
        geosphere,   # Calcular distancias geográficas como Haversine
        tidymodels,  # Carga recipes, parsnip, rsample, tune, y otros paquetes relacionados
-       spatialsample, # Muestreo espacial
+       spatialsample # Muestreo espacial
        )
 ```
 
@@ -296,15 +296,17 @@ library(ggplot2)
 
 # Mapa formato plano
 
-ggplot(train_localidades_sf) +
+mapa_1 <- ggplot(train_localidades_sf) +
   geom_sf(color = "blue", size = 1.5, alpha = 0.7) +
   theme_minimal() +
   labs(title = "Puntos fuera de Chapinero en Bogotá",
        x = "Longitud", y = "Latitud")
 
+ggsave("../04_Views/GRAFICO_Puntos-fuera-chapinero.png", plot = mapa_1, dpi = 150, width = 8, height = 6)
+
 # Mapar formato plano
 
-ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
+mapa_2 <- ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
   geom_sf(color = "blue", alpha = 0.6, size = 1.2) +
   coord_sf(
     xlim = c(min(train_aptos$lon), max(train_aptos$lon)),
@@ -314,6 +316,8 @@ ggplot(train_aptos_sf) +   # Aquí usas el objeto sf
   labs(title = "Ubicación de apartamentos - Muestra de entrenamiento",
        x = "Longitud", y = "Latitud") +
   theme_minimal()
+
+ggsave("../04_Views/GRAFICO_Mapa-train.png", plot = mapa_2, dpi = 150, width = 8, height = 6)
 ```
 
 
@@ -866,7 +870,58 @@ dummies_df_test <- test_aptos_tokens_clean %>%
 # Unir a df 
 test_aptos <- left_join(test_aptos, dummies_df_test, by = "property_id")
 ```
--###--------#####
+
+```{r}
+# Estadisticas descriptivas
+estadisticas_train <- skim(train_localidades)
+estadisticas_test <- skim(test_aptos)
+
+# Guardar 
+write.table(estadisticas_train, "../04_Views/TABLA1-ESTADISTICAS_TRAIN.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+write.table(estadisticas_test, "../04_Views/TABLA2-ESTADISTICAS_TEST.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# Selecciona variables clave para modelos
+vars_clave_estadisticas <- train_localidades %>%
+  select(price,
+    year,
+    distancia_cai,
+    distancia_mall,
+    distancia_bus,
+    distancia_avenida,
+    binaria_parking,
+    binaria_terrace,
+    binaria_gym,
+    binaria_laundry,
+    binaria_elevator)
+
+# Función para calcular resumen de una variable
+resumir_variable <- function(var_name, data) {
+  x <- data[[var_name]]
+  tibble(
+    Variable = var_name,
+    Media = mean(as.numeric(x), na.rm = TRUE),
+    Mediana = median(as.numeric(x), na.rm = TRUE),
+    Min = min(as.numeric(x), na.rm = TRUE),
+    Max = max(as.numeric(x), na.rm = TRUE),
+    Des.st = sd(as.numeric(x), na.rm = TRUE)
+  )
+}
+
+# Generar lista de tibbles y unir en uno solo
+resumen_final <- names(vars_clave_estadisticas) %>%
+  map(~resumir_variable(.x, vars_clave_estadisticas)) %>%
+  bind_rows()
+
+# 3. (Opcional) Redondear valores
+resumen_final <- resumen_final %>%
+  mutate(across(where(is.numeric), ~round(., 2)))
+
+ # Guardar 
+write.table(resumen_final, 
+            "../04_Views/TABLA3-RESUMEN-VARIABLES-ESTADISTICAS.txt", 
+            sep = "\t", row.names = TRUE, quote = FALSE)
+```
+
 ## 1.4 Convertir a factores base entrenamiento
 
 ```{r}

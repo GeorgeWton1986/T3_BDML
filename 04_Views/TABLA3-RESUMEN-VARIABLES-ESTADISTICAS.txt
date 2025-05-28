@@ -1,0 +1,12 @@
+Variable	Media	Mediana	Min	Max	Des.st
+1	price	647064225.44	5.5e+08	3e+08	1.65e+09	300259932.24
+2	year	2020.29	2020	2019	2021	0.76
+3	distancia_cai	719.28	683.32	1.53	2167.46	365.44
+4	distancia_mall	584.62	516.94	1.21	3807.57	362.85
+5	distancia_bus	208.02	182.49	0	2668.31	131.27
+6	distancia_avenida	411.4	284.09	0	3239.26	412.76
+7	binaria_parking	0.69	1	0	1	0.46
+8	binaria_terrace	0.39	0	0	1	0.49
+9	binaria_gym	0.21	0	0	1	0.41
+10	binaria_laundry	0.23	0	0	1	0.42
+11	binaria_elevator	0.15	0	0	1	0.36
