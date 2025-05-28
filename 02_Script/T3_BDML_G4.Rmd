@@ -1008,7 +1008,7 @@ modelo_1_EN <- linear_reg(penalty = tune(), mixture = tune()) %>%
 #Mixture: alpha es el balance entre la regularizacion L1 (Lasso) y L2 (Ridge)
 
 grid_elastic_1 <- grid_regular(
-  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.001 hasta 1 en escala logaritmica
+  penalty(range = c(-4, -1), trans = log10_trans()),  # Explorando valores desde 0.0001 hasta 1 en escala logaritmica
   mixture(range = c(0, 1)),                          # Explorar de 0 a 1
   levels = c(15, 8)                                  # 15 niveles de penalty, 8 de mixture
 )
